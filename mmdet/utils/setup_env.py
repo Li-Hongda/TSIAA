@@ -99,6 +99,7 @@ def register_all_modules(init_default_scope: bool = True) -> None:
     import mmdet.evaluation  # noqa: F401,F403
     import mmdet.models  # noqa: F401,F403
     import mmdet.visualization  # noqa: F401,F403
+    import mmdet.attackers
 
     if init_default_scope:
         never_created = DefaultScope.get_current_instance() is None \

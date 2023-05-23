@@ -8,6 +8,7 @@ from torch import Tensor
 
 from mmdet.registry import MODELS
 from mmdet.structures import SampleList
+from mmdet.structures.bbox import bbox2roi
 from mmdet.utils import ConfigType, OptConfigType, OptMultiConfig
 from .base import BaseDetector
 
@@ -140,7 +141,9 @@ class TwoStageDetector(BaseDetector):
             ]
         roi_outs = self.roi_head.forward(x, rpn_results_list,
                                          batch_data_samples)
-        results = results + (roi_outs, )
+        proposals = [res.bboxes for res in rpn_results_list]
+        rois = bbox2roi(proposals)        
+        results = results + (rois, roi_outs[0], roi_outs[1])
         return results
 
     def loss(self, batch_inputs: Tensor,

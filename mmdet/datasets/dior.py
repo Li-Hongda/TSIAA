@@ -5,7 +5,7 @@ from .coco import CocoDataset
 
 @DATASETS.register_module()
 class DIORDataset(CocoDataset):
-    METTAINFO = {
+    METAINFO = {
         "classes":
                 ('airplane', 'airport', 'baseballfield', 'basketballcourt', 'bridge', 'chimney', 'dam', 
                 'Expressway-Service-area', 'Expressway-toll-station', 'golffield', 'groundtrackfield','harbor', 
