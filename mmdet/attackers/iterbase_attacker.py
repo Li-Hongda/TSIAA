@@ -48,15 +48,6 @@ class IterBaseAttacker(nn.Module):
         for i in range(3):
             img[:,i,:] = img[:,i,:] * std[i].cuda() + mean[i].cuda()
         return img
-    
-    def visualize_samples(self, images, model, data_sample):
-        dataset_name = data_sample.img_path.strip().split('/')[5]
-        model_name = model.__class__.__name__.lower()
-        attacker_name = self.__class__.__name__[:-8].lower()
-        mmengine.mkdir_or_exist(f'work_dirs/examples/{dataset_name}_{attacker_name}_{model_name}_step{self.steps}') 
-        img_name =  data_sample.img_path.strip().split('/')[-1]
-        adv_images = images.cpu().detach().numpy().astype(np.uint8).transpose(1,2,0)
-        cv2.imwrite(f'work_dirs/examples/{dataset_name}_{attacker_name}_{model_name}_step{self.steps}/{img_name}',adv_images)    
 
     def make_init_mask_img(self, images, init_results, model, data):
         boxes_init,pred_init,labels_init = [],[],[]
@@ -291,8 +282,7 @@ class BIMAttacker(IterBaseAttacker):
         adv_data = {
             "inputs":[adv_images],
             "data_samples":data['data_samples']
-        }        
-        self.visualize_samples(adv_images, model, data['data_samples'][0])
+        } 
         return adv_data
     
 
@@ -353,7 +343,6 @@ class BIMFODAttacker(IterBaseAttacker):
             "inputs":[adv_images],
             "data_samples":data['data_samples']
         }        
-        self.visualize_samples(adv_images, model, data['data_samples'][0])
         return adv_data
 
 
@@ -412,8 +401,7 @@ class BIMIOUAttacker(BIMAttacker):
         adv_data = {
             "inputs":[adv_images],
             "data_samples":data['data_samples']
-        }        
-        self.visualize_samples(adv_images, model, data['data_samples'][0])
+        }
         return adv_data
 
 
@@ -475,8 +463,7 @@ class BIMIOUFODAttacker(BIMAttacker):
         adv_data = {
             "inputs":[adv_images],
             "data_samples":data['data_samples']
-        }        
-        self.visualize_samples(adv_images, model, data['data_samples'][0])
+        }
         return adv_data
 
 
@@ -549,5 +536,4 @@ class TBIMAttacker(BIMAttacker):
             "inputs":[adv_images],
             "data_samples":data['data_samples']
         }
-        # self.visualize_samples(adv_images, model, data['data_samples'][0])
         return adv_data
