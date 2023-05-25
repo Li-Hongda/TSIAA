@@ -15,4 +15,4 @@ optim_wrapper = dict(
 test_dataloader = dict(
     dataset=dict(
         data_prefix=dict(
-            img='/disk2/lhd/codes/attack/work_dirs/examples/dior_hbb_bim_fasterrcnn_step10/')))
+            img='/disk2/lhd/codes/attack/work_dirs/examples/dior_bim_fasterrcnn_step10/')))

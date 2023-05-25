@@ -10,6 +10,7 @@ from mmengine.structures import InstanceData
 from torch import Tensor
 from torch.nn.modules.utils import _pair
 
+from mmdet.attackers.utils import get_bbox_and_score
 from mmdet.models.layers import multiclass_nms
 from mmdet.models.losses import accuracy
 from mmdet.models.task_modules.samplers import SamplingResult
@@ -462,7 +463,7 @@ class BBoxHead(BaseModule):
         result_list = []
         for img_id in range(len(batch_img_metas)):
             img_meta = batch_img_metas[img_id]
-            results = self._predict_by_feat_single(
+            results, cls_logits = self._predict_by_feat_single(
                 roi=rois[img_id],
                 cls_score=cls_scores[img_id],
                 bbox_pred=bbox_preds[img_id],
@@ -471,7 +472,7 @@ class BBoxHead(BaseModule):
                 rcnn_test_cfg=rcnn_test_cfg)
             result_list.append(results)
 
-        return result_list
+        return result_list, cls_logits
 
     def _predict_by_feat_single(
             self,
@@ -558,17 +559,19 @@ class BBoxHead(BaseModule):
             results.bboxes = bboxes
             results.scores = scores
         else:
-            det_bboxes, det_labels = multiclass_nms(
+            det_bboxes, det_labels, inds = multiclass_nms(
                 bboxes,
                 scores,
                 rcnn_test_cfg.score_thr,
                 rcnn_test_cfg.nms,
                 rcnn_test_cfg.max_per_img,
-                box_dim=box_dim)
+                box_dim=box_dim,
+                return_inds=True)
+            cls_logits = get_bbox_and_score(inds, num_classes, bboxes, scores)
             results.bboxes = det_bboxes[:, :-1]
             results.scores = det_bboxes[:, -1]
             results.labels = det_labels
-        return results
+        return results, cls_logits
 
     def refine_bboxes(self, sampling_results: Union[List[SamplingResult],
                                                     InstanceList],

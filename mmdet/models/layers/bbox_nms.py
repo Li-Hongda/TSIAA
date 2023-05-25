@@ -75,7 +75,7 @@ def multiclass_nms(
     if not torch.onnx.is_in_onnx_export():
         # NonZero not supported  in TensorRT
         inds = valid_mask.nonzero(as_tuple=False).squeeze(1)
-        bboxes, scores, labels = bboxes[inds], scores[inds], labels[inds]
+        bboxes_, scores_, labels_ = bboxes[inds], scores[inds], labels[inds]
     else:
         # TensorRT NMS plugin has invalid output filled with -1
         # add dummy data to make detection output correct.
@@ -83,7 +83,7 @@ def multiclass_nms(
         scores = torch.cat([scores, scores.new_zeros(1)], dim=0)
         labels = torch.cat([labels, labels.new_zeros(1)], dim=0)
 
-    if bboxes.numel() == 0:
+    if bboxes_.numel() == 0:
         if torch.onnx.is_in_onnx_export():
             raise RuntimeError('[ONNX Error] Can not record NMS '
                                'as it has not been executed this time')
@@ -93,16 +93,16 @@ def multiclass_nms(
         else:
             return dets, labels
 
-    dets, keep = batched_nms(bboxes, scores, labels, nms_cfg)
+    dets, keep = batched_nms(bboxes_, scores_, labels_, nms_cfg)
 
     if max_num > 0:
         dets = dets[:max_num]
         keep = keep[:max_num]
 
     if return_inds:
-        return dets, labels[keep], inds[keep]
+        return dets, labels_[keep], inds[keep]
     else:
-        return dets, labels[keep]
+        return dets, labels_[keep]
 
 
 def fast_nms(

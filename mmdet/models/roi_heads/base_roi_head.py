@@ -115,7 +115,7 @@ class BaseRoIHead(BaseModule, metaclass=ABCMeta):
         # to be scaled to the original image scale, because the mask
         # branch will scale both bbox and mask at the same time.
         bbox_rescale = rescale if not self.with_mask else False
-        results_list = self.predict_bbox(
+        results_list, cls_logits = self.predict_bbox(
             x,
             batch_img_metas,
             rpn_results_list,

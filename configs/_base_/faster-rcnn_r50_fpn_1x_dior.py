@@ -5,14 +5,9 @@ _base_ = [
 ]
 
 # model settings
-model = dict(roi_head=dict(bbox_head=dict(num_classes=20)),
-             test_cfg=dict(
-                 rcnn=dict(
-                    score_thr=0.3,
-                    nms=dict(type='nms', iou_threshold=0.5),
-                    max_per_img=100)))
+model = dict(roi_head=dict(bbox_head=dict(num_classes=20)))
 
 test_dataloader = dict(
     dataset=dict(
         data_prefix=dict(
-            img='/disk2/lhd/codes/attack/work_dirs/examples/dior_hbb_bimiou_fasterrcnn_step10/')))
+            img='/disk2/lhd/codes/attack/work_dirs/examples/dior_tbim_fasterrcnn/images/')))

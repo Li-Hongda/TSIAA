@@ -58,8 +58,24 @@ def region_img_mean(img_cv2,x1,y1,w,h,i,j,divide_number):
     return mn
 
 
+
 def get_valid_det():
     pass
 
-def get_bbox_and_label():
-    pass
+def get_bbox_and_score(inds, num_classes, bboxes, scores):
+    scores_ = scores[inds // num_classes]
+    # bboxes = bboxes[inds // num_classes]
+    # bboxes_ = []
+    # for i, box in enumerate(bboxes):
+    #     bboxes_.append(box[(inds[i]%20)*4:(inds[i]+1)%20*4])
+    # bboxes_ = torch.stack(bboxes_)
+    return scores_#, bboxes_
+
+def get_target_label(logits, rank):
+    labels = []
+    for logit in logits:
+        logit_list = logit[:20].tolist()
+        labels.append(logit_list.index(sorted(logit_list)[rank - 1]))
+    return torch.as_tensor(labels)
+        
+    logits.max()

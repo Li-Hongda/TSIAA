@@ -1,6 +1,6 @@
 # dataset settings
-dataset_type = 'DIORDataset'
-data_root = '/disk2/lhd/datasets/attack/dior/'
+dataset_type = 'DOTADataset'
+data_root = '/disk2/lhd/datasets/attack/debug/'
 
 # Example to use different file client
 # Method 1: simply set the data root and let the file I/O module
