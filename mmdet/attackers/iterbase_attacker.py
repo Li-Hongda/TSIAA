@@ -16,7 +16,7 @@ class IterBaseAttacker(nn.Module):
     def __init__(self,
                  img_mean, 
                  img_std, 
-                 steps = 20,
+                 steps = 10,
                  step_size = 1,
                  epsilon = 16,
                  targeted = False):
@@ -48,7 +48,53 @@ class IterBaseAttacker(nn.Module):
         for i in range(3):
             img[:,i,:] = img[:,i,:] * std[i].cuda() + mean[i].cuda()
         return img
-
+    
+    def get_init_results(self, data, model):
+        with torch.no_grad():
+            init_img = model.data_preprocessor(copy.deepcopy(data), False)
+            init_outs = model._run_forward(init_img, mode='tensor')
+            if hasattr(model, 'roi_head'):
+                init_outs = [[out] for out in init_outs]
+                init_results, cls_logits = model.roi_head.bbox_head.predict_by_feat(*init_outs, 
+                                  batch_img_metas=[data['data_samples'][0].metainfo], 
+                                  rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
+            else:
+                init_results = model.bbox_head.predict_by_feat(*init_outs, 
+                               batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)        
+        return init_results, cls_logits
+    
+    def attack_step(self, adv_images, model, loss_func, data, init_results, ori_images):
+        delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+        delta.requires_grad = True
+        adv_data = {
+            "inputs":[adv_images + delta],
+            "data_samples":data['data_samples']
+        }
+        adv_data = model.data_preprocessor(adv_data, False)
+        outs = model._run_forward(adv_data, mode='tensor')
+        
+        if hasattr(model, 'roi_head'):
+            outs = [[out] for out in outs]
+            results, cls_logits = model.roi_head.bbox_head.predict_by_feat(*outs, 
+                        batch_img_metas=[data['data_samples'][0].metainfo], 
+                        rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
+        else:
+            results = model.bbox_head.predict_by_feat(*outs, 
+                        batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
+        # if results[0].labels.shape[0] == 0:
+        #     break
+        loss = loss_func(results[0], init_results[0], cls_logits)
+        loss.backward()
+        noise = delta.grad.data.detach_().clone()
+        delta.grad.zero_()
+        delta.data = delta.data + self.step_size * torch.sign(noise)
+        delta.data = delta.data.clamp(-self.eps, self.eps)
+        delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
+        
+        adv_images = ori_images.clone() + delta
+        # del loss, delta
+        return adv_images
+        
     def make_init_mask_img(self, images, init_results, model, data):
         boxes_init,pred_init,labels_init = [],[],[]
         for i in range(len(init_results.labels)):
@@ -236,49 +282,10 @@ class BIMAttacker(IterBaseAttacker):
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
         delta.requires_grad = True
-        with torch.no_grad():
-            init_img = model.data_preprocessor(copy.deepcopy(data), False)
-            init_outs = model._run_forward(init_img, mode='tensor')
-            if hasattr(model, 'roi_head'):
-                init_outs = [[out] for out in init_outs]
-                init_results, _ = model.roi_head.bbox_head.predict_by_feat(*init_outs, 
-                                  batch_img_metas=[data['data_samples'][0].metainfo], 
-                                  rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
-            else:
-                init_results = model.bbox_head.predict_by_feat(*init_outs, 
-                               batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
+        init_results, _ = self.get_init_results(data, model)
         adv_images = ori_images.clone()
         for ii in range(self.steps):
-            delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
-            delta.requires_grad = True            
-            adv_data = {
-                "inputs":[adv_images + delta],
-                "data_samples":data['data_samples']
-            }
-            adv_data = model.data_preprocessor(adv_data, False)
-            outs = model._run_forward(adv_data, mode='tensor')
-            
-            if hasattr(model, 'roi_head'):
-                outs = [[out] for out in outs]
-                results, _ = model.roi_head.bbox_head.predict_by_feat(*outs, 
-                             batch_img_metas=[data['data_samples'][0].metainfo], 
-                             rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
-            else:
-                results = model.bbox_head.predict_by_feat(*outs, 
-                          batch_img_metas=[data['data_samples'][0].metainfo], 
-                          rescale=True)
-            # if results[0].labels.shape[0] == 0:
-            #     break
-            loss= class_loss(results[0], init_results[0])
-            loss.backward()
-            noise = delta.grad.data.detach_().clone()
-            delta.grad.zero_()
-            delta.data = delta.data + self.step_size * torch.sign(noise)
-            delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
-            delta.data = delta.data.clamp(-self.eps, self.eps)
-            adv_images = ori_images.clone() + delta
-            del loss, delta
-            
+            adv_images = self.attack_step(adv_images, model, class_loss, data, init_results, ori_images)
         adv_data = {
             "inputs":[adv_images],
             "data_samples":data['data_samples']
@@ -294,17 +301,7 @@ class BIMFODAttacker(IterBaseAttacker):
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
         delta.requires_grad = True
-        with torch.no_grad():
-            init_img = model.data_preprocessor(copy.deepcopy(data), False)
-            init_outs = model._run_forward(init_img, mode='tensor')
-            if hasattr(model, 'roi_head'):
-                init_outs = [[out] for out in init_outs]
-                init_results, _ = model.roi_head.bbox_head.predict_by_feat(*init_outs, 
-                                  batch_img_metas=[data['data_samples'][0].metainfo], 
-                                  rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
-            else:
-                init_results = model.bbox_head.predict_by_feat(*init_outs, 
-                               batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
+        init_results, _ = self.get_init_results(data, model)
         attack_map, _ = self.make_init_mask_img(ori_images.unsqueeze(0), init_results[0], model, data)
         attack_map = torch.from_numpy(attack_map).permute(2,0,1).cuda()
         adv_images = ori_images.clone()
@@ -354,49 +351,10 @@ class BIMIOUAttacker(BIMAttacker):
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
         delta.requires_grad = True
-        with torch.no_grad():
-            init_img = model.data_preprocessor(copy.deepcopy(data), False)
-            init_img['inputs'].requires_grad = True
-            init_outs = model._run_forward(init_img, mode='tensor')
-            if hasattr(model, 'roi_head'):
-                init_outs = [[out] for out in init_outs]
-                init_results, _ = model.roi_head.bbox_head.predict_by_feat(*init_outs, 
-                                  batch_img_metas=[data['data_samples'][0].metainfo], 
-                                  rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
-            else:
-                init_results = model.bbox_head.predict_by_feat(*init_outs, 
-                               batch_img_metas=[data['data_samples'][0].metainfo], 
-                               rescale=True)
+        init_results, _ = self.get_init_results(data, model)
         adv_images = ori_images.clone()
         for ii in range(self.steps):
-            delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
-            delta.requires_grad = True            
-            adv_data = {
-                "inputs":[adv_images + delta],
-                "data_samples":data['data_samples']
-            }
-            adv_data = model.data_preprocessor(adv_data, False)
-            outs = model._run_forward(adv_data, mode='tensor')
-            
-            if hasattr(model, 'roi_head'):
-                outs = [[out] for out in outs]
-                results, _ = model.roi_head.bbox_head.predict_by_feat(*outs, 
-                         batch_img_metas=[data['data_samples'][0].metainfo], 
-                         rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
-            else:
-                results = model.bbox_head.predict_by_feat(*outs, 
-                          batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
-            # if results[0].labels.shape[0] == 0:
-            #     break
-            loss, class_loss, iou_loss = faster_loss(results[0], init_results[0])
-            loss.backward()
-            noise = delta.grad.data.detach_().clone()
-            delta.grad.zero_()
-            delta.data = delta.data + self.step_size * torch.sign(noise)
-            delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
-            delta.data = delta.data.clamp(-self.eps, self.eps)
-            adv_images = ori_images.clone() + delta
-            del loss, class_loss, iou_loss, delta
+            adv_images = self.attack_step(adv_images, model, class_loss, data, init_results, ori_images)
             
         adv_data = {
             "inputs":[adv_images],
@@ -413,19 +371,7 @@ class BIMIOUFODAttacker(BIMAttacker):
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
         delta.requires_grad = True
-        with torch.no_grad():
-            init_img = model.data_preprocessor(copy.deepcopy(data), False)
-            init_img['inputs'].requires_grad = True
-            init_outs = model._run_forward(init_img, mode='tensor')
-            if hasattr(model, 'roi_head'):
-                init_outs = [[out] for out in init_outs]
-                init_results, _ = model.roi_head.bbox_head.predict_by_feat(*init_outs, 
-                                  batch_img_metas=[data['data_samples'][0].metainfo], 
-                                  rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
-            else:
-                init_results = model.bbox_head.predict_by_feat(*init_outs, 
-                               batch_img_metas=[data['data_samples'][0].metainfo], 
-                               rescale=True)
+        init_results, _ = self.get_init_results(data, model)
         attack_map, _ = self.make_init_mask_img(ori_images.unsqueeze(0), init_results[0], model, data)
         attack_map = torch.from_numpy(attack_map).permute(2,0,1).cuda()            
         adv_images = ori_images.clone()
@@ -478,60 +424,24 @@ class TBIMAttacker(BIMAttacker):
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
         delta.requires_grad = True
-        with torch.no_grad():
-            init_img = model.data_preprocessor(copy.deepcopy(data), False)
-            init_img['inputs'].requires_grad = True
-            init_outs = model._run_forward(init_img, mode='tensor')
-            if hasattr(model, 'roi_head'):
-                init_outs = [[out] for out in init_outs]
-                init_results, cls_logits = model.roi_head.bbox_head.predict_by_feat(*init_outs, 
-                                           batch_img_metas=[data['data_samples'][0].metainfo], 
-                                           rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
-            else:
-                init_results = model.bbox_head.predict_by_feat(*init_outs, 
-                               batch_img_metas=[data['data_samples'][0].metainfo], 
-                               rescale=True)
-            if self.targeted:
-                tar_labels = get_target_label(cls_logits, 5)
-                tar_instances = data['data_samples'][0].gt_instances
-                tar_instances.bboxes.tensor = init_results[0].bboxes
-                tar_instances.labels.data = tar_labels
-                data['data_samples'][0].gt_instances = tar_instances
-            else:
-                raise NotImplementedError
+        init_results, cls_logits = self.get_init_results(data, model)
+        if init_results[0].bboxes.shape[0] == 0:
+            return data
+        if self.targeted:
+            tar_labels = get_target_label(cls_logits, rank = 5)
+            tar_instances = data['data_samples'][0].gt_instances
+            tar_instances.bboxes.tensor = init_results[0].bboxes
+            tar_instances.labels.data = tar_labels
+            assert tar_instances.bboxes.tensor.shape[0] == tar_instances.labels.data.shape[0]
+            data['data_samples'][0].gt_instances = tar_instances
+            init_results[0].labels = tar_labels
+        else:
+            raise NotImplementedError
 
         adv_images = ori_images.clone()
         for ii in range(self.steps):
-            delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
-            delta.requires_grad = True            
-            adv_data = {
-                "inputs":[adv_images + delta],
-                "data_samples":data['data_samples']
-            }
-            adv_data = model.data_preprocessor(adv_data, False)
-            outs = model._run_forward(adv_data, mode='tensor')
-            
-            if hasattr(model, 'roi_head'):
-                outs = [[out] for out in outs]
-                results, _ = model.roi_head.bbox_head.predict_by_feat(*outs, 
-                         batch_img_metas=[data['data_samples'][0].metainfo], 
-                         rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
-            else:
-                results = model.bbox_head.predict_by_feat(*outs, 
-                          batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
-            # if results[0].labels.shape[0] == 0:
-            #     break
-            loss, class_loss, iou_loss = faster_loss(results[0], init_results[0])
-            class_loss.backward()
-            noise = delta.grad.data.detach_().clone()
-            delta.grad.zero_()
-            delta.data = delta.data + self.step_size * torch.sign(noise)
-            delta.data = delta.data.clamp(-self.eps, self.eps)
-            delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
-            
-            adv_images = ori_images.clone() + delta
-            del loss, class_loss, iou_loss, delta
-            
+            adv_images = self.attack_step(adv_images, model, target_class_loss, data, init_results, ori_images)
+        
         adv_data = {
             "inputs":[adv_images],
             "data_samples":data['data_samples']

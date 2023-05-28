@@ -170,7 +170,8 @@ class AttackLoop(TestLoop):
             'before_test_iter', batch_idx=idx, data_batch=data_batch)
         # predictions should be sequence of BaseDataElement
         # with autocast(enabled=self.fp16):
-        adv_batch = self.attack_step(data_batch)
+        gen_model = self.runner.model
+        adv_batch = self.runner.attacker.attack(gen_model, data_batch)
         # outputs = self.runner.model.test_step(adv_batch)
         # self.evaluator.process(data_samples=outputs, data_batch=data_batch)
         self.runner.call_hook(
@@ -178,12 +179,5 @@ class AttackLoop(TestLoop):
             batch_idx=idx,
             data_batch=adv_batch,
             outputs=None)
-    
-    def attack_step(self, data_batch):
-        # annotations = mmengine.load(self.runner.test_dataloader.dataset.ann_file)
-        gen_model = self.runner.model
-        # setattr(gen_model.bbox_head, "attack", "True")
-        adv_batch = self.runner.attacker.attack(gen_model, data_batch)
-        return adv_batch
         
         

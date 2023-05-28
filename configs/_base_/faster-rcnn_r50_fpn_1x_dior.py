@@ -11,3 +11,5 @@ test_dataloader = dict(
     dataset=dict(
         data_prefix=dict(
             img='/disk2/lhd/codes/attack/work_dirs/examples/dior_tbim_fasterrcnn/images/')))
+# test_evaluator = dict(type='ASRMetric',
+#                       metric=['asr', 'dr'])

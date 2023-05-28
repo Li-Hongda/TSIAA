@@ -43,8 +43,8 @@ train_dataloader = dict(
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        ann_file='annotations/instances_train2017.json',
-        data_prefix=dict(img='train2017/'),
+        ann_file='/disk1/peileipl/datasets/DIOR/DIOR_2/trainval/trainval.json',
+        data_prefix=dict(img='/disk1/peileipl/datasets/DIOR/DIOR_2/trainval/images/'),
         filter_cfg=dict(filter_empty_gt=True, min_size=32),
         pipeline=train_pipeline,
         backend_args=backend_args))

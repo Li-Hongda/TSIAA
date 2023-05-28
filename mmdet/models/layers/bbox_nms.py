@@ -87,11 +87,11 @@ def multiclass_nms(
         if torch.onnx.is_in_onnx_export():
             raise RuntimeError('[ONNX Error] Can not record NMS '
                                'as it has not been executed this time')
-        dets = torch.cat([bboxes, scores[:, None]], -1)
+        dets = torch.cat([bboxes_, scores_[:, None]], -1)
         if return_inds:
-            return dets, labels, inds
+            return dets, labels_, inds
         else:
-            return dets, labels
+            return dets, labels_
 
     dets, keep = batched_nms(bboxes_, scores_, labels_, nms_cfg)
 
