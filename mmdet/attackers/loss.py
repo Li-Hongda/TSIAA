@@ -42,6 +42,8 @@ def target_class_loss(cur_pred, init_pred, cls_logits, num_classes = 20, score_t
         ious = bbox_overlaps(gt_bbox.unsqueeze(0), pred_bboxes).squeeze()
         matched_bboxes = pred_bboxes[ious > 0]
         matched_logits = cls_logits[ious > 0]
+        if matched_logits.shape[0] == 0:
+            continue        
         if len(matched_logits.shape) > 2:
             matched_logits = matched_logits[0]
         onehot_label = F.one_hot(gt_label, num_classes).cuda()

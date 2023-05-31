@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import copy
+from mmengine.structures.instance_data import InstanceData
+from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
 
 def calc_iou(bbox1,bbox2):
     if not isinstance(bbox1, np.ndarray):
@@ -77,5 +79,41 @@ def get_target_label(logits, rank):
         logit_list = logit[:20].tolist()
         labels.append(logit_list.index(sorted(logit_list)[rank - 1]))
     return torch.as_tensor(labels)
+
+
+def get_target_label_v1(gts, dts, logits, rank):
+    visited = [False] * len(dts)
+    labels = []
+    bboxes = []
+    tar_ins = InstanceData()
+    for gt in gts:
+        ious = bbox_overlaps(gt.bboxes.tensor.cuda(), dts.bboxes)
+        max_overlap, argmax_overlaps = ious.max(1)
+        if max_overlap.item() > 0.5 and dts.scores[argmax_overlaps.item()] > 0.3:
+            visited[argmax_overlaps.item()] = True
+            logit_list = logits[argmax_overlaps.item()][:20].tolist()
+            labels.append(torch.tensor([logit_list.index(sorted(logit_list)[rank - 1])]))
+            bboxes.append(dts.bboxes[argmax_overlaps.item()])
+    if bboxes == []:
+        return None
+    tar_ins.bboxes = torch.stack(bboxes).cuda()
+    tar_ins.labels = torch.cat(labels).cuda()
+    return tar_ins 
+            
+
         
-    logits.max()
+        
+    labels = []
+    for logit in logits:
+        logit_list = logit[:20].tolist()
+        labels.append(logit_list.index(sorted(logit_list)[rank - 1]))
+    return torch.as_tensor(labels)
+ 
+
+def MI(grad_now, grad_pre):
+    grad_norm = torch.norm(grad_now, p=1)
+    grad = grad_now / grad_norm + grad_pre
+    grad_pre = grad
+    return grad, grad_pre
+    
+    

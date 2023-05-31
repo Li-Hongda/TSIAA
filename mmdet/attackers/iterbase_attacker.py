@@ -7,7 +7,7 @@ import mmcv
 import mmengine
 from mmdet.registry import ATTACKERS
 import torch.nn as nn
-from .utils import get_target_label, region_img_mean, k_largest_index_argsort, mask_img_result_change
+from .utils import *
 from .loss import *
 
 
@@ -428,6 +428,76 @@ class TBIMAttacker(BIMAttacker):
         if init_results[0].bboxes.shape[0] == 0:
             return data
         if self.targeted:
+            # tar_labels = get_target_label(data['data_samples'][0].gt_instances, init_results[0], cls_logits, rank = 5)
+            # tar_instances = data['data_samples'][0].gt_instances
+            # tar_instances.bboxes.tensor = init_results[0].bboxes
+            # tar_instances.labels.data = tar_labels
+            # assert tar_instances.bboxes.tensor.shape[0] == tar_instances.labels.data.shape[0]
+            # data['data_samples'][0].gt_instances = tar_instances
+            # init_results[0].labels = tar_labels
+            
+            tar_instances = get_target_label_v1(data['data_samples'][0].gt_instances, init_results[0], cls_logits, rank = 5)
+            if tar_instances == None:
+                return data
+            data['data_samples'][0].gt_instances = tar_instances
+            init_results[0].labels.data = tar_instances.labels
+            
+        else:
+            raise NotImplementedError
+
+        adv_images = ori_images.clone()
+        for ii in range(self.steps):
+            delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+            delta.requires_grad = True
+            adv_data = {
+                "inputs":[adv_images + delta],
+                "data_samples":data['data_samples']
+            }
+            adv_data = model.data_preprocessor(adv_data, False)
+            outs = model._run_forward(adv_data, mode='tensor')
+            
+            if hasattr(model, 'roi_head'):
+                outs = [[out] for out in outs]
+                results, cls_logits = model.roi_head.bbox_head.predict_by_feat(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], 
+                            rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
+                num_classes = model.roi_head.bbox_head.num_classes
+            else:
+                results = model.bbox_head.predict_by_feat(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
+                num_classes = model.bbox_head.num_classes
+            loss = target_class_loss(results[0], init_results[0], cls_logits, num_classes)
+            if loss == 0.0:
+                break
+            loss.backward()
+            noise = delta.grad.data.detach_().clone()
+            delta.grad.zero_()
+            delta.data = delta.data - self.step_size * torch.sign(noise)
+            delta.data = delta.data.clamp(-self.eps, self.eps)
+            delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
+            
+            adv_images = ori_images.clone() + delta            
+            # adv_images = self.attack_step(adv_images, model, target_class_loss, data, init_results, ori_images)
+        
+        adv_data = {
+            "inputs":[adv_images],
+            "data_samples":data['data_samples']
+        }
+        return adv_data
+
+
+@ATTACKERS.register_module()
+class TMIMAttacker(TBIMAttacker):
+ 
+    def attack(self, model, data, anntations = None):
+        ori_images = data['inputs'][0].cuda()
+        model = self.prepare_model(model)
+        delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+        delta.requires_grad = True
+        init_results, cls_logits = self.get_init_results(data, model)
+        if init_results[0].bboxes.shape[0] == 0:
+            return data
+        if self.targeted:
             tar_labels = get_target_label(cls_logits, rank = 5)
             tar_instances = data['data_samples'][0].gt_instances
             tar_instances.bboxes.tensor = init_results[0].bboxes
@@ -439,8 +509,40 @@ class TBIMAttacker(BIMAttacker):
             raise NotImplementedError
 
         adv_images = ori_images.clone()
+        grad_pre = 0
         for ii in range(self.steps):
-            adv_images = self.attack_step(adv_images, model, target_class_loss, data, init_results, ori_images)
+            delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+            delta.requires_grad = True
+            adv_data = {
+                "inputs":[adv_images + delta],
+                "data_samples":data['data_samples']
+            }
+            adv_data = model.data_preprocessor(adv_data, False)
+            outs = model._run_forward(adv_data, mode='tensor')
+            
+            if hasattr(model, 'roi_head'):
+                outs = [[out] for out in outs]
+                results, cls_logits = model.roi_head.bbox_head.predict_by_feat(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], 
+                            rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
+                num_classes = model.roi_head.bbox_head.num_classes
+            else:
+                results = model.bbox_head.predict_by_feat(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
+                num_classes = model.bbox_head.num_classes
+            loss = target_class_loss(results[0], init_results[0], cls_logits, num_classes)
+            if loss == 0.0:
+                break
+            loss.backward()
+            noise = delta.grad.data.detach_().clone()
+            noise, grad_pre = MI(noise, grad_pre)
+            delta.grad.zero_()
+            delta.data = delta.data - self.step_size * torch.sign(noise)
+            delta.data = delta.data.clamp(-self.eps, self.eps)
+            delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
+            
+            adv_images = ori_images.clone() + delta            
+            # adv_images = self.attack_step(adv_images, model, target_class_loss, data, init_results, ori_images)
         
         adv_data = {
             "inputs":[adv_images],

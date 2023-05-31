@@ -16,7 +16,7 @@ from terminaltables import AsciiTable
 from mmdet.datasets.api_wrappers import COCO, COCOeval
 from mmdet.registry import METRICS
 from mmdet.structures.mask import encode_mask_results
-from ..functional import eval_asr, eval_dr, print_summary
+from ..functional import eval_asr, eval_dr, eval_dr_v1,eval_asr_v1, print_summary
 
 
 @METRICS.register_module()
@@ -81,7 +81,7 @@ class ASRMetric(BaseMetric):
         super().__init__(collect_device=collect_device, prefix=prefix)
         # coco evaluation metrics
         self.metrics = metric if isinstance(metric, list) else [metric]
-        allowed_metrics = ['asr', 'dr']
+        allowed_metrics = ['asr', 'dr', 'fp']
         for metric in self.metrics:
             if metric not in allowed_metrics:
                 raise KeyError(
@@ -138,68 +138,6 @@ class ASRMetric(BaseMetric):
         self.cat_ids = None
         self.img_ids = None
 
-    def xyxy2xywh(self, bbox: np.ndarray) -> list:
-        """Convert ``xyxy`` style bounding boxes to ``xywh`` style for COCO
-        evaluation.
-
-        Args:
-            bbox (numpy.ndarray): The bounding boxes, shape (4, ), in
-                ``xyxy`` order.
-
-        Returns:
-            list[float]: The converted bounding boxes, in ``xywh`` order.
-        """
-
-        _bbox: List = bbox.tolist()
-        return [
-            _bbox[0],
-            _bbox[1],
-            _bbox[2] - _bbox[0],
-            _bbox[3] - _bbox[1],
-        ]
-
-    def results2json(self, results: Sequence[dict],
-                     outfile_prefix: str) -> dict:
-        """Dump the detection results to a COCO style json file.
-
-        There are 3 types of results: proposals, bbox predictions, mask
-        predictions, and they have different data types. This method will
-        automatically recognize the type, and dump them to json files.
-
-        Args:
-            results (Sequence[dict]): Testing results of the
-                dataset.
-            outfile_prefix (str): The filename prefix of the json files. If the
-                prefix is "somepath/xxx", the json files will be named
-                "somepath/xxx.bbox.json", "somepath/xxx.segm.json",
-                "somepath/xxx.proposal.json".
-
-        Returns:
-            dict: Possible keys are "bbox", "segm", "proposal", and
-            values are corresponding filenames.
-        """
-        bbox_json_results = []
-        for idx, result in enumerate(results):
-            image_id = result.get('img_id', idx)
-            labels = result['labels']
-            bboxes = result['bboxes']
-            scores = result['scores']
-            # bbox results
-            for i, label in enumerate(labels):
-                data = dict()
-                data['image_id'] = image_id
-                data['bbox'] = self.xyxy2xywh(bboxes[i])
-                data['score'] = float(scores[i])
-                data['category_id'] = self.cat_ids[label]
-                bbox_json_results.append(data)
-
-        result_files = dict()
-        result_files['asr'] = f'{outfile_prefix}.bbox.json'
-        result_files['dr'] = f'{outfile_prefix}.bbox.json'
-        dump(bbox_json_results, result_files['asr'])
-
-        return result_files
-
     def process(self, data_batch: dict, data_samples: Sequence[dict]) -> None:
         """Process one batch of data samples and predictions. The processed
         results should be stored in ``self.results``, which will be used to
@@ -242,44 +180,17 @@ class ASRMetric(BaseMetric):
         """
         logger: MMLogger = MMLogger.get_current_instance()
 
-        # split gt and prediction list
-        # gts, preds = zip(*results)
-
-        # tmp_dir = None
-        # if self.outfile_prefix is None:
-        #     tmp_dir = tempfile.TemporaryDirectory()
-        #     outfile_prefix = osp.join(tmp_dir.name, 'results')
-        # else:
-        #     outfile_prefix = self.outfile_prefix
-
-        # handle lazy init
-        # if self.cat_ids is None:
-        #     self.cat_ids = self._coco_api.get_cat_ids(
-        #         cat_names=self.dataset_meta['classes'])
-        # if self.img_ids is None:
-        #     self.img_ids = self._coco_api.get_img_ids()
-
-        # convert predictions to coco format and dump to json file
-        # result_files = self.results2json(preds, outfile_prefix)
-
         eval_results = OrderedDict()
-        # if self.format_only:
-        #     logger.info('results are saved in '
-        #                 f'{osp.dirname(outfile_prefix)}')
-        #     return eval_results
+
 
         for metric in self.metrics:
             logger.info(f'Evaluating {metric}...')
-            # predictions = load(result_files[metric])
-            # coco_dt = self._coco_api.loadRes(predictions)
+            # asr, dr = eval_dr_v1(self.results)
+            # fr = eval_asr_v1(self.results)
             if metric == 'asr':
-                asr = eval_asr(self.results)
+                asr, fr = eval_asr(self.results)
             elif metric == 'dr':
                 dr = eval_dr(self.results)
-                # dr = eval_dr(self._coco_api, coco_dt)
-        print_summary(asr, dr)
-
-        # if tmp_dir is not None:
-        #     tmp_dir.cleanup()
+        print_summary(asr, dr, fr, logger)
         return eval_results
     

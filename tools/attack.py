@@ -16,9 +16,9 @@ def parse_args():
         '--work-dir',
         help='the directory to save the file containing evaluation metrics')
     parser.add_argument("--attack", default='bim')
-    parser.add_argument("--step_size", default=1)
-    parser.add_argument("--steps", default=10)
-    parser.add_argument("--epsilon", default=8)
+    parser.add_argument("--step_size", type = int, default=1)
+    parser.add_argument("--steps", type = int, default=10)
+    parser.add_argument("--epsilon", type = int, default=8)
     parser.add_argument(
         '--show', action='store_true', help='show prediction results')    
     parser.add_argument(

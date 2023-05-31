@@ -1,6 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from multiprocessing import Pool
 
+import torch
 import numpy as np
 from mmengine import track_iter_progress
 from mmengine.logging import print_log
@@ -299,12 +300,6 @@ def eval_map(det_results,
             det_results, annotations, i)
         # choose proper function according to datasets to compute tp and fp
         if tpfp_fn is None:
-            if dataset in ['det', 'vid']:
-                tpfp_fn = tpfp_imagenet
-            elif dataset in ['oid_challenge', 'oid_v6'] \
-                    or use_group_of is True:
-                tpfp_fn = tpfp_openimages
-            else:
                 tpfp_fn = tpfp_default
         if not callable(tpfp_fn):
             raise ValueError(
@@ -480,7 +475,7 @@ def print_map_summary(mean_ap,
         
         
 def eval_asr(results, iou_thr=0):
-
+    fp = 0
     tar = 0
     total = 0
     from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
@@ -491,23 +486,33 @@ def eval_asr(results, iou_thr=0):
         pred_scores = det_result['scores']
         pred_bboxes = det_result['bboxes'][pred_scores > 0.3]
         pred_labels = det_result['labels'][pred_scores > 0.3]
+        total += gt_bboxes.shape[0]
+        visited = [False] * gt_bboxes.shape[0]
+        # TODO:一个预测框对应多个gt时如何计算？
         for pred_bbox, pred_label in zip(pred_bboxes, pred_labels):
             iou = bbox_overlaps(pred_bbox.unsqueeze(0), gt_bboxes)
             max_overlap, argmax_overlaps = iou.max(1)
             if max_overlap > iou_thr:
-                # match_bbox = gt_bboxes[argmax_overlaps]
-                match_label = gt_labels[argmax_overlaps]
-                total += 1
-                if pred_label == match_label:
-                    tar += 1
-                
+                # match_bbox = gt_bboxes[a rgmax_overlaps]
+                sorted_idx = torch.argsort(iou[0],descending=True)[:len(iou[iou>0])]
+                for idx in sorted_idx:
+                    if pred_label == gt_labels[idx] and visited[idx] == False:
+                        tar += 1
+                        visited[idx] = True
+                        break
+                # match_label = gt_labels[argmax_overlaps]
+                # # total += 1
+                # if pred_label == match_label and visited[argmax_overlaps] == False:
+                #     tar += 1
+                # visited[argmax_overlaps] = True
+            else:
+                fp += 1         
     asr = tar / total * 100
-    return asr
+    fr = fp / total * 100
+    return asr, fr
 
 
-
-def eval_dr(results, iou_thr=0.5,):
-
+def eval_dr(results, iou_thr=0):
     tar = 0
     total = 0
     from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
@@ -519,6 +524,7 @@ def eval_dr(results, iou_thr=0.5,):
         pred_bboxes = det_result['bboxes'][pred_scores > 0.3]
         if pred_bboxes.shape[0] == 0:
             tar += gt_bboxes.shape[0]
+            total += gt_bboxes.shape[0]
             continue
         for gt_bbox in gt_bboxes:
             iou = bbox_overlaps(gt_bbox.unsqueeze(0), pred_bboxes)
@@ -529,20 +535,70 @@ def eval_dr(results, iou_thr=0.5,):
     dr = tar / total * 100
     return dr
 
+def eval_dr_v1(results, iou_thr=0):
+    disappear = 0
+    targeted = 0
+    total = 0
+    from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
+    for result in track_iter_progress(results):
+        annotation, det_result = result
+        gt_bboxes = annotation['bboxes']
+        gt_labels = annotation['labels']
+        pred_scores = det_result['scores']
+        pred_bboxes = det_result['bboxes'][pred_scores > 0.3]
+        pred_labels = det_result['labels'][pred_scores > 0.3]
+        if pred_bboxes.shape[0] == 0:
+            disappear += gt_bboxes.shape[0]
+            total += gt_bboxes.shape[0]
+            continue
+        visited = [False] * gt_bboxes.shape[0]
+        for idx, (gt_bbox, gt_label) in enumerate(zip(gt_bboxes, gt_labels)):
+            iou = bbox_overlaps(gt_bbox.unsqueeze(0), pred_bboxes)
+            max_overlap, argmax_overlaps = iou.max(1)
+            total += 1
+            if max_overlap <= iou_thr:
+                disappear += 1
+            elif gt_label  == pred_labels[argmax_overlaps] and visited[idx] == False:
+                targeted += 1
+                visited[idx] = True
+                
+    dr = disappear / total * 100
+    asr = targeted / total * 100
+    return asr, dr
+
+def eval_asr_v1(results, iou_thr=0):
+    fp = 0
+    total = 0
+    from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
+    for result in track_iter_progress(results):
+        annotation, det_result = result
+        gt_bboxes = annotation['bboxes']
+        pred_scores = det_result['scores']
+        pred_bboxes = det_result['bboxes'][pred_scores > 0.3]
+        total += pred_bboxes.shape[0]
+        for pred_bbox in pred_bboxes:
+            iou = bbox_overlaps(pred_bbox.unsqueeze(0), gt_bboxes)
+            max_overlap, argmax_overlaps = iou.max(1)
+            if max_overlap <= iou_thr:
+                fp += 1
+    fr = fp / total * 100
+    return fr
+
 
 def print_summary(asr,
                   dr, 
+                  fp,
                   logger=None):
 
     if logger == 'silent':
         return
 
-    header = ['Attack Success Rate', 'Disappear Rate']
+    header = ['Attack Success Rate', 'Disappear Rate', 'FalsePositive Rate']
 
     table_data = [header]
 
     row_data = [
-        f'{asr:.3f}', f'{dr:.3f}'
+        f'{asr:.3f}', f'{dr:.3f}', f'{fp:.3f}'
     ]
     table_data.append(row_data)
     table = AsciiTable(table_data)

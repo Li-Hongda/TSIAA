@@ -8,6 +8,7 @@ from mmengine.registry import RUNNERS, LOOPS, HOOKS
 from mmengine.runner.loops import TestLoop
 from mmengine.runner.runner import Runner
 from mmengine.hooks.hook import DATA_BATCH, Hook
+from mmdet.structures.bbox import get_box_tensor
 
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -36,7 +37,8 @@ class RecordHook(Hook):
         adv_images = images.cpu().detach().numpy().astype(np.uint8).transpose(1,2,0)
         cv2.imwrite(f'{self.image_path}/{img_name}',adv_images)
         if self.with_ann:
-            bboxes = data_sample.gt_instances.bboxes.tensor
+            bboxes = data_sample.gt_instances.bboxes
+            bboxes = get_box_tensor(bboxes)
             labels = data_sample.gt_instances.labels
             with open(f'{self.label_path}/{img_name[:-3]}txt', 'a') as f:
                 for i in range(bboxes.shape[0]):
@@ -46,8 +48,12 @@ class RecordHook(Hook):
                     f.write(outline)
 
     def after_test(self, runner) -> None:
-
+        if runner.test_dataloader.dataset.__class__.__name__ == 'DIORDataset':
+            img_suffix = '.jpg'
+        else:
+            img_suffix = '.png'
         destfile = self.image_path[:-7] + '/select.json'
+        # if runner.test_dataloader
         # imageparent = os.path.join(self.image_path)
         labelparent = os.path.join(self.label_path)
         
@@ -66,7 +72,7 @@ class RecordHook(Hook):
             for file in filenames:
                 basename = os.path.basename(file)
                 single_image = {}
-                single_image['file_name'] = basename[:-4] + '.png'
+                single_image['file_name'] = basename[:-4] + img_suffix
                 single_image['id'] = image_id
                 single_image['width'] = 800
                 single_image['height'] = 800
