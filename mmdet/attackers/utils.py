@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
+import scipy.stats as st
 import copy
 from mmengine.structures.instance_data import InstanceData
 from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
@@ -110,10 +112,36 @@ def get_target_label_v1(gts, dts, logits, rank):
     return torch.as_tensor(labels)
  
 
+def gkern(kernlen=15, nsig=3):
+    x = np.linspace(-nsig, nsig, kernlen)
+    kern1d = st.norm.pdf(x)
+    kernel_raw = np.outer(kern1d, kern1d)
+    kernel = kernel_raw / kernel_raw.sum()
+    return kernel
+
+kernel = gkern().astype(np.float32)
+stack_kernel = np.stack([kernel, kernel, kernel])
+stack_kernel = np.expand_dims(stack_kernel, 1)
+stack_kernel = torch.from_numpy(stack_kernel).cuda()
+
+
 def MI(grad_now, grad_pre):
     grad_norm = torch.norm(grad_now, p=1)
     grad = grad_now / grad_norm + grad_pre
     grad_pre = grad
     return grad, grad_pre
     
+def BI(grad_now, grad_pre):
+    return grad_now, grad_now
+
+
+def TI(grad_now, grad_pre, kernel = stack_kernel):
+    grad = F.conv2d(grad_now[None], kernel, padding=7, groups=3)
+    return grad, grad_pre
     
+
+def NI(grad_now, grad_pre):
+    grad_norm = torch.norm(grad_now, p=1)
+    grad = grad_now / grad_norm + grad_pre
+    grad_pre = grad
+    return grad, grad_pre

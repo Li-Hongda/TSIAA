@@ -36,16 +36,16 @@ test_pipeline = [
 ]
 train_dataloader = dict(
     batch_size=4,
-    num_workers=2,
+    num_workers=4,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     batch_sampler=dict(type='AspectRatioBatchSampler'),
     dataset=dict(
         type=dataset_type,
-        data_root=data_root,
-        ann_file='/disk1/peileipl/datasets/DIOR/DIOR_2/trainval/trainval.json',
-        data_prefix=dict(img='/disk1/peileipl/datasets/DIOR/DIOR_2/trainval/images/'),
-        filter_cfg=dict(filter_empty_gt=True, min_size=32),
+        data_root='/disk1/peileipl/datasets/DIOR/DIOR_2/trainval/',
+        ann_file='trainval.json',
+        data_prefix=dict(img='images/'),
+        filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=train_pipeline,
         backend_args=backend_args))
 val_dataloader = dict(
