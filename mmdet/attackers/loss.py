@@ -60,6 +60,7 @@ def target_loss(cur_pred, init_pred, cls_logits, num_classes = 20, score_thr = 0
     gt_labels = init_pred.labels
     ce_loss = nn.CrossEntropyLoss()
     cls_loss = 0
+    iou_loss = 0
     for gt_bbox, gt_label in zip(gt_bboxes, gt_labels):
         ious = bbox_overlaps(gt_bbox.unsqueeze(0), pred_bboxes)
         max_overlap, argmax_overlaps = ious.max(1)
@@ -69,11 +70,13 @@ def target_loss(cur_pred, init_pred, cls_logits, num_classes = 20, score_thr = 0
             continue  
         if len(matched_logits.shape) > 2:
             matched_logits = matched_logits[0]
+        iou_loss += 1 - max_overlap + 1e-6
         cls_loss += ce_loss(matched_logits[:, :num_classes], gt_label.repeat(matched_logits.shape[0]).cuda())
-    cls_loss /= gt_bboxes.shape[0]
-    return cls_loss
+    
+    # cls_loss /= gt_bboxes.shape[0]
+    return (cls_loss + iou_loss) / gt_bboxes.shape[0]
 
-def faster_loss(cur_pred, init_pred, score_thr = 0.3):
+def faster_loss(cur_pred, init_pred, cls_logits, score_thr = 0.3):
     cls_score = cur_pred.scores
     mseloss = torch.nn.MSELoss()
     if cls_score[cls_score>=score_thr].shape[0]==0:
@@ -87,4 +90,4 @@ def faster_loss(cur_pred, init_pred, score_thr = 0.3):
         iou_loss = torch.sum(pred_iou)/cur_pred.labels.shape[0]
     loss = class_loss + iou_loss
 
-    return loss, class_loss, iou_loss
+    return loss

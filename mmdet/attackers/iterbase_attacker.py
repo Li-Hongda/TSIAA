@@ -368,7 +368,7 @@ class BIMIOUAttacker(BIMAttacker):
         init_results, _ = self.get_init_results(data, model)
         adv_images = ori_images.clone()
         for ii in range(self.steps):
-            adv_images = self.attack_step(adv_images, model, class_loss, data, init_results, ori_images)
+            adv_images = self.attack_step(adv_images, model, faster_loss, data, init_results, ori_images)
             
         adv_data = {
             "inputs":[adv_images],

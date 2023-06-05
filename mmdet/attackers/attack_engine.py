@@ -48,10 +48,10 @@ class RecordHook(Hook):
                     f.write(outline)
 
     def after_test(self, runner) -> None:
-        if runner.test_dataloader.dataset.__class__.__name__ == 'DIORDataset':
-            img_suffix = '.jpg'
-        else:
-            img_suffix = '.png'
+        # if runner.test_dataloader.dataset.__class__.__name__ == 'DIORDataset':
+        #     img_suffix = '.jpg'
+        # else:
+        #     img_suffix = '.png'
         destfile = self.image_path[:-7] + '/select.json'
         # if runner.test_dataloader
         # imageparent = os.path.join(self.image_path)
@@ -72,7 +72,7 @@ class RecordHook(Hook):
             for file in filenames:
                 basename = os.path.basename(file)
                 single_image = {}
-                single_image['file_name'] = basename[:-4] + img_suffix
+                single_image['file_name'] = basename[:-4] + '.png'
                 single_image['id'] = image_id
                 single_image['width'] = 800
                 single_image['height'] = 800
