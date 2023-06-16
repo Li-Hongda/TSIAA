@@ -88,9 +88,8 @@ class IterBaseAttacker(nn.Module):
         noise = delta.grad.data.detach_().clone()
         delta.grad.zero_()
         delta.data = delta.data + self.step_size * torch.sign(noise)
-        delta.data = delta.data.clamp(-self.eps, self.eps)
         delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
-        
+        delta.data = delta.data.clamp(-self.eps, self.eps)
         adv_images = ori_images.clone() + delta
         # del loss, delta
         return adv_images
@@ -291,7 +290,7 @@ class IterBaseAttacker(nn.Module):
 @ATTACKERS.register_module()
 class BIMAttacker(IterBaseAttacker):
     
-    def attack(self, model, data, anntations = None):
+    def attack(self, model, data, dataset = None):
         ori_images = data['inputs'][0].cuda()
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
@@ -310,7 +309,7 @@ class BIMAttacker(IterBaseAttacker):
 @ATTACKERS.register_module()
 class BIMFODAttacker(IterBaseAttacker):
     
-    def attack(self, model, data, anntations = None):
+    def attack(self, model, data, dataset = None):
         ori_images = data['inputs'][0].cuda()
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
@@ -466,13 +465,13 @@ class TBIMAttacker(BIMAttacker):
             noise = noise[0]
         delta.grad.zero_()
         delta.data = delta.data - self.step_size * torch.sign(noise)
-        delta.data = delta.data.clamp(-self.eps, self.eps)
         delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
+        delta.data = delta.data.clamp(-self.eps, self.eps)
         
         adv_images = ori_images.clone() + delta 
         return adv_images, grad_pre
     
-    def attack(self, model, data, anntations = None):
+    def attack(self, model, data, dataset = None):
         ori_images = data['inputs'][0].cuda()
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
@@ -480,15 +479,12 @@ class TBIMAttacker(BIMAttacker):
         init_results, cls_logits = self.get_init_results(data, model)
         if init_results[0].bboxes.shape[0] == 0:
             return data
-        if self.targeted:  
-            tar_instances = get_target_label_v1(data['data_samples'][0].gt_instances, init_results[0], cls_logits, rank = 5)
-            if tar_instances == None:
-                return data
-            data['data_samples'][0].gt_instances = tar_instances
-            init_results[0].labels.data = tar_instances.labels
-            
-        else:
-            raise NotImplementedError
+
+        tar_instances = get_target_label_v1(data['data_samples'][0].gt_instances, init_results[0], cls_logits, rank = 5)
+        if tar_instances == None:
+            return data
+        data['data_samples'][0].gt_instances = tar_instances
+        init_results[0].labels.data = tar_instances.labels
 
         adv_images = ori_images.clone()
         grad_pre = 0
@@ -503,9 +499,150 @@ class TBIMAttacker(BIMAttacker):
 
 
 @ATTACKERS.register_module()
+class TFBIMAttacker(TBIMAttacker):
+
+    # def attack_step(self, adv_images, model, loss_func, grad_func, data, init_results, ori_images, grad_pre):
+
+    
+    def attack(self, model, data, dataset = None):
+        ori_images = data['inputs'][0].cuda()
+        model = self.prepare_model(model)
+        delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+        delta.requires_grad = True
+        init_results, cls_logits = self.get_init_results(data, model)
+        if init_results[0].bboxes.shape[0] == 0:
+            return data
+
+        tar_instances = get_target_label_v1(data['data_samples'][0].gt_instances, init_results[0], cls_logits, rank = 5)
+        if tar_instances == None:
+            return data
+        data['data_samples'][0].gt_instances = tar_instances
+        init_results[0].labels.data = tar_instances.labels
+        adv_images = ori_images.clone()
+        grad_pre = 0
+        for ii in range(self.steps):
+            delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+            delta.requires_grad = True
+            adv_data = {
+                "inputs":[adv_images + delta],
+                "data_samples":data['data_samples']
+            }
+            adv_data = model.data_preprocessor(adv_data, False)
+            outs = model._run_forward(adv_data, mode='tensor')
+            features = model._run_forward(adv_data, mode='feature')
+            if hasattr(model, 'roi_head'):
+                outs = [[out] for out in outs]
+                results, cls_logits = model.roi_head.bbox_head.predict_by_feat(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], 
+                            rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
+                num_classes = model.roi_head.bbox_head.num_classes
+            else:
+                results = model.bbox_head.predict_by_feat(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
+                num_classes = model.bbox_head.num_classes
+            if results[0].bboxes.shape[0] == 0:
+                break
+            loss = target_feature_loss(results[0], init_results[0], cls_logits, features, model, dataset, num_classes)
+            if loss == 0.0:
+                break
+            loss.backward()
+            noise = delta.grad.data.detach_().clone()
+            noise, grad_pre = BI(noise, grad_pre)
+            delta.grad.zero_()
+            delta.data = delta.data - self.step_size * torch.sign(noise)
+            delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
+            delta.data = delta.data.clamp(-self.eps, self.eps)
+            
+            adv_images = ori_images.clone() + delta 
+        # return adv_images, grad_pre            
+            # adv_images, grad_pre = self.attack_step(adv_images, model, target_loss, BI, data, init_results, ori_images, grad_pre)
+        
+        adv_data = {
+            "inputs":[adv_images],
+            "data_samples":data['data_samples']
+        }
+        return adv_data
+    
+
+
+@ATTACKERS.register_module()
+class TPBIMAttacker(TBIMAttacker):
+
+    def attack_step(self, adv_images, model, loss_func, grad_func, attack_map, data, init_results, ori_images, grad_pre):
+        delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+        delta.requires_grad = True
+        adv_data = {
+            "inputs":[adv_images + delta],
+            "data_samples":data['data_samples']
+        }
+        adv_data = model.data_preprocessor(adv_data, False)
+        outs = model._run_forward(adv_data, mode='tensor')
+        
+        if hasattr(model, 'roi_head'):
+            outs = [[out] for out in outs]
+            results, cls_logits = model.roi_head.bbox_head.predict_by_feat(*outs, 
+                        batch_img_metas=[data['data_samples'][0].metainfo], 
+                        rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
+            num_classes = model.roi_head.bbox_head.num_classes
+        else:
+            results = model.bbox_head.predict_by_feat(*outs, 
+                        batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
+            num_classes = model.bbox_head.num_classes
+        if results[0].bboxes.shape[0] == 0:
+            return adv_images, grad_pre
+        loss = loss_func(results[0], init_results[0], cls_logits, num_classes)
+        if loss == 0.0:
+            return adv_images, grad_pre
+        loss.backward()
+        noise = delta.grad.data.detach_().clone()
+        noise, grad_pre = grad_func(noise, grad_pre)
+        if len(noise.shape) == 4:
+            noise = noise[0]
+        delta.grad.zero_()
+        delta.data = delta.data - self.step_size * torch.sign(noise) * attack_map
+        delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
+        delta.data = delta.data.clamp(-self.eps, self.eps)
+        
+        adv_images = ori_images.clone() + delta 
+        return adv_images, grad_pre
+    
+    def attack(self, model, data, dataset = None):
+        ori_images = data['inputs'][0].cuda()
+        model = self.prepare_model(model)
+        delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+        delta.requires_grad = True
+        init_results, cls_logits = self.get_init_results(data, model)
+        if init_results[0].bboxes.shape[0] == 0:
+            return data
+        attack_map = self.make_init_mask_img(ori_images, init_results[0])
+        tar_instances = get_target_label_v1(data['data_samples'][0].gt_instances, init_results[0], cls_logits, rank = 5)
+        if tar_instances == None:
+            return data
+        data['data_samples'][0].gt_instances = tar_instances
+        init_results[0].labels.data = tar_instances.labels
+
+        adv_images = ori_images.clone()
+        grad_pre = 0
+        for ii in range(self.steps):
+            adv_images, grad_pre = self.attack_step(adv_images, model, target_loss, BI, attack_map, data, init_results, ori_images, grad_pre)
+        
+        adv_data = {
+            "inputs":[adv_images],
+            "data_samples":data['data_samples']
+        }
+        return adv_data
+    
+    def make_init_mask_img(self, images, instance):
+        attack_map = images.new_zeros(images.shape)
+        for bbox in instance.bboxes.int():
+            attack_map[:, bbox[1]:bbox[3], bbox[0]:bbox[2]] = 1
+        return attack_map
+
+
+@ATTACKERS.register_module()
 class TMIMAttacker(TBIMAttacker):
  
-    def attack(self, model, data, anntations = None):
+    def attack(self, model, data, dataset = None):
         ori_images = data['inputs'][0].cuda()
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
@@ -526,7 +663,7 @@ class TMIMAttacker(TBIMAttacker):
         adv_images = ori_images.clone()
         grad_pre = 0
         for ii in range(self.steps):
-            adv_images, grad_pre = self.attack_step(adv_images, model, target_class_loss, MI, data, init_results, ori_images, grad_pre)
+            adv_images, grad_pre = self.attack_step(adv_images, model, target_class_loss_v1, MI, data, init_results, ori_images, grad_pre)
         
         adv_data = {
             "inputs":[adv_images],
@@ -538,7 +675,7 @@ class TMIMAttacker(TBIMAttacker):
 @ATTACKERS.register_module()
 class TTIMAttacker(TBIMAttacker):
  
-    def attack(self, model, data, anntations = None):
+    def attack(self, model, data, dataset = None):
         ori_images = data['inputs'][0].cuda()
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
@@ -558,7 +695,7 @@ class TTIMAttacker(TBIMAttacker):
         adv_images = ori_images.clone()
         grad_pre = 0
         for ii in range(self.steps):
-            adv_images, grad_pre = self.attack_step(adv_images, model, target_class_loss, TI, data, init_results, ori_images, grad_pre)
+            adv_images, grad_pre = self.attack_step(adv_images, model, target_class_loss_v1, TI, data, init_results, ori_images, grad_pre)
      
         adv_data = {
             "inputs":[adv_images],
@@ -590,6 +727,8 @@ class TNIMAttacker(TBIMAttacker):
             results = model.bbox_head.predict_by_feat(*outs, 
                         batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
             num_classes = model.bbox_head.num_classes
+        if results[0].bboxes.shape[0] == 0:
+            return adv_images, grad_pre            
         loss = loss_func(results[0], init_results[0], cls_logits, num_classes)
         if loss == 0.0:
             return adv_images, grad_pre
@@ -598,13 +737,12 @@ class TNIMAttacker(TBIMAttacker):
         noise, grad_pre = grad_func(noise, grad_pre)
         delta.grad.zero_()
         delta.data = delta.data - self.step_size * torch.sign(noise)
-        delta.data = delta.data.clamp(-self.eps, self.eps)
         delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
-        
+        delta.data = delta.data.clamp(-self.eps, self.eps)
         adv_images = ori_images.clone() + delta 
         return adv_images, grad_pre
      
-    def attack(self, model, data, anntations = None):
+    def attack(self, model, data, dataset = None):
         ori_images = data['inputs'][0].cuda()
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
@@ -625,7 +763,7 @@ class TNIMAttacker(TBIMAttacker):
         adv_images = ori_images.clone()
         grad_pre = torch.tensor([0],device=torch.device('cuda'))
         for ii in range(self.steps):
-            adv_images, grad_pre = self.attack_step(adv_images, model, target_class_loss, MI, data, init_results, ori_images, grad_pre)
+            adv_images, grad_pre = self.attack_step(adv_images, model, target_class_loss_v1, MI, data, init_results, ori_images, grad_pre)
         
         adv_data = {
             "inputs":[adv_images],
@@ -685,13 +823,12 @@ class TSIMAttacker(TBIMAttacker):
         noise, grad_pre = grad_func(noise, grad_pre)
         delta.grad.zero_()
         delta.data = delta.data - self.step_size * torch.sign(noise)
-        delta.data = delta.data.clamp(-self.eps, self.eps)
         delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
-        
+        delta.data = delta.data.clamp(-self.eps, self.eps)
         adv_images = ori_images.clone() + delta 
         return adv_images, grad_pre
      
-    def attack(self, model, data, anntations = None):
+    def attack(self, model, data, dataset = None):
         ori_images = data['inputs'][0].cuda()
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))

@@ -146,6 +146,10 @@ class TwoStageDetector(BaseDetector):
         results = results + (rois, roi_outs[0], roi_outs[1])
         return results
 
+    def _forward_feature(self, batch_inputs: Tensor) -> tuple:
+        x = self.extract_feat(batch_inputs)
+        return x[0]
+
     def loss(self, batch_inputs: Tensor,
              batch_data_samples: SampleList) -> dict:
         """Calculate losses from a batch of inputs and data samples.

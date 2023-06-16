@@ -94,6 +94,8 @@ class BaseDetector(BaseModel, metaclass=ABCMeta):
             return self.predict(inputs, data_samples)
         elif mode == 'tensor':
             return self._forward(inputs, data_samples)
+        elif mode == 'feature':
+            return self._forward_feature(inputs)
         else:
             raise RuntimeError(f'Invalid mode "{mode}". '
                                'Only supports loss, predict and tensor mode')

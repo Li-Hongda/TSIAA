@@ -174,10 +174,13 @@ class AttackLoop(TestLoop):
         """
         self.runner.call_hook(
             'before_test_iter', batch_idx=idx, data_batch=data_batch)
+        per_class_img = {}
+        for k,v in self.runner.test_dataloader.dataset.cat_img_map.items():
+            per_class_img[k] = list(set(v))
         # predictions should be sequence of BaseDataElement
         # with autocast(enabled=self.fp16):
         gen_model = self.runner.model
-        adv_batch = self.runner.attacker.attack(gen_model, data_batch)
+        adv_batch = self.runner.attacker.attack(gen_model, data_batch, self.runner.test_dataloader.dataset)
         # outputs = self.runner.model.test_step(adv_batch)
         # self.evaluator.process(data_samples=outputs, data_batch=data_batch)
         self.runner.call_hook(

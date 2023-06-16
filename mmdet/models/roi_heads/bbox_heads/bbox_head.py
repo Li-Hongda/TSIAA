@@ -567,7 +567,8 @@ class BBoxHead(BaseModule):
                 rcnn_test_cfg.max_per_img,
                 box_dim=box_dim,
                 return_inds=True)
-            cls_logits = get_bbox_and_score(inds, num_classes, bboxes, scores)
+            cls_logits = get_bbox_and_score(inds, num_classes, bboxes, cls_score)
+            # cls_logits = get_bbox_and_score(inds, num_classes, bboxes, scores)
             results.bboxes = det_bboxes[:, :-1]
             results.scores = det_bboxes[:, -1]
             results.labels = det_labels

@@ -61,7 +61,10 @@ def region_img_mean(img_cv2,x1,y1,w,h,i,j,divide_number):
     mn = torch.tensor([img_mean_0.item(),img_mean_1.item(),img_mean_2.item()])
     return mn
 
-
+def ann_xywy_to_xyxy(ann, stride):
+    x1, y1 = ann[:2]
+    x2, y2 = x1 + ann[2], y1 + ann[3]
+    return [x1 // stride, y1 // stride, x2 // stride, y2 // stride]
 
 def get_valid_det():
     pass
@@ -87,14 +90,15 @@ def get_target_label_v1(gts, dts, logits, rank):
     visited = [False] * len(dts)
     labels = []
     bboxes = []
+    num_classes = logits.shape[1] - 1
     tar_ins = InstanceData()
     for gt in gts:
         ious = bbox_overlaps(gt.bboxes.tensor.cuda(), dts.bboxes)
         max_overlap, argmax_overlaps = ious.max(1)
         if max_overlap.item() > 0.5 and dts.scores[argmax_overlaps.item()] > 0.3:
             visited[argmax_overlaps.item()] = True
-            logit_list = logits[argmax_overlaps.item()][:20].tolist()
-            labels.append(torch.tensor([logit_list.index(sorted(logit_list)[rank - 1])]))
+            logit_list = logits[argmax_overlaps.item()][:num_classes].tolist()
+            labels.append(torch.tensor([logit_list.index(sorted(logit_list)[num_classes - rank])]))
             bboxes.append(dts.bboxes[argmax_overlaps.item()])
     if bboxes == []:
         return None
