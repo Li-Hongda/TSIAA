@@ -474,7 +474,7 @@ def print_map_summary(mean_ap,
         print_log('\n' + table.table, logger=logger)
         
         
-def eval_asr(results, iou_thr=0):
+def eval_asr(results, iou_thr=0.5):
     fp = 0
     tar = 0
     total = 0
@@ -484,8 +484,8 @@ def eval_asr(results, iou_thr=0):
         gt_bboxes = annotation['bboxes']
         gt_labels = annotation['labels']
         pred_scores = det_result['scores']
-        pred_bboxes = det_result['bboxes'][pred_scores > 0.3]
-        pred_labels = det_result['labels'][pred_scores > 0.3]
+        pred_bboxes = det_result['bboxes'][pred_scores > 0.5]
+        pred_labels = det_result['labels'][pred_scores > 0.5]
         total += gt_bboxes.shape[0]
         visited = [False] * gt_bboxes.shape[0]
         # TODO:一个预测框对应多个gt时如何计算？
@@ -512,7 +512,7 @@ def eval_asr(results, iou_thr=0):
     return asr, fr
 
 
-def eval_dr(results, iou_thr=0):
+def eval_dr(results, iou_thr=0.5):
     tar = 0
     total = 0
     from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps

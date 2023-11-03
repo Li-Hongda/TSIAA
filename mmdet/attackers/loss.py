@@ -5,8 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
-from .utils import ann_xywy_to_xyxy
-
+from .utils import ann_xywh_to_xyxy
 def assign_bboxes(pred_bboxes, init_bboxes, iou_thr):
     overlaps = bbox_overlaps(pred_bboxes, init_bboxes)
     init = []
@@ -98,9 +97,7 @@ def target_loss(cur_pred, init_pred, cls_logits, num_classes = 20, score_thr = 0
         # cls_loss += - matched_logits[0][gt_label]
         # alpha = (matched_logits[matched_logits > matched_logits[0][gt_label]].sum() // matched_logits[0][gt_label]).item()
         logit_sum = matched_logits[matched_logits > matched_logits[0][gt_label]].sum()
-        if logit_sum == 0:
-            continue
-        cls_loss += logit_sum -  matched_logits[0][gt_label]
+        cls_loss += logit_sum -  3 * matched_logits[0][gt_label]
         # cls_loss += matched_logits[0][pred_labels[argmax_overlaps.item()]] - matched_logits[0][gt_label]
         # cls_loss += ce_loss(matched_logits[:, :num_classes], gt_label[None])
     
@@ -108,7 +105,55 @@ def target_loss(cur_pred, init_pred, cls_logits, num_classes = 20, score_thr = 0
     # return iou_loss / gt_bboxes.shape[0]
     return (cls_loss + iou_loss) / gt_bboxes.shape[0]
 
-def target_feature_loss(cur_pred, init_pred, cls_logits, feats, model, dataset, num_classes = 20, score_thr = 0.3):
+# def target_feature_loss(cur_pred, init_pred, cls_logits, feats, model, dataset, num_classes = 20, score_thr = 0.3):
+#     pred_bboxes = cur_pred.bboxes
+#     pred_labels = cur_pred.labels
+#     pred_scores = cur_pred.scores
+#     gt_bboxes = init_pred.bboxes
+#     gt_labels = init_pred.labels
+#     ce_loss = nn.CrossEntropyLoss()
+#     cls_loss = 0
+#     iou_loss = 0
+#     feat_loss = 0
+#     for gt_bbox, gt_label in zip(gt_bboxes, gt_labels):
+#         ious = bbox_overlaps(gt_bbox.unsqueeze(0), pred_bboxes)
+#         max_overlap, argmax_overlaps = ious.max(1)
+#         if max_overlap < 0.01:
+#             continue
+#         matched_bboxes = pred_bboxes[argmax_overlaps.item()]
+#         matched_logits = cls_logits[argmax_overlaps]
+#         feature_bbox = torch.round(matched_bboxes / 4).int()
+#         bbox_feature = feats[..., feature_bbox[1]:feature_bbox[3], feature_bbox[0]:feature_bbox[2]]
+#         support_img = random.choice(dataset.per_class_imgs[gt_label.item() + 1])
+#         anns = dataset.per_img_anns[support_img]
+#         target_anns = [ann for ann in anns if ann['category_id']==(gt_label.item() + 1)]
+#         target_instance = random.choice(target_anns)['bbox']
+#         target_instance = ann_xywh_to_xyxy(target_instance, 4)
+#         support_img = dataset.data_prefix.img + support_img
+#         sup_img = cv2.imread(support_img)
+#         sup_data = {
+#             "inputs" : [torch.tensor(sup_img).permute(2,0,1).cuda()],
+#         }
+#         sup_data = model.data_preprocessor(sup_data, False)
+#         features = model._run_forward(sup_data, mode='feature')
+#         target_bbox_feature = features[..., target_instance[1]:target_instance[3], 
+#                                         target_instance[0]:target_instance[2]]
+#         target_bbox_feature = F.interpolate(target_bbox_feature, bbox_feature.shape[2:], mode = 'bilinear', align_corners=False)
+#         # feat_loss = F.kl_div(target_bbox_feature, bbox_feature, reduction = 'batchmean')
+#         feat_loss = F.mse_loss(target_bbox_feature, bbox_feature)
+#         iou_loss += 1 - max_overlap + 1e-6
+#         # cls_loss += - matched_logits[0][gt_label]
+#         # alpha = (matched_logits[matched_logits > matched_logits[0][gt_label]].sum() // matched_logits[0][gt_label]).item()
+#         cls_loss += matched_logits[matched_logits > matched_logits[0][gt_label]].sum() - matched_logits[0][gt_label]
+#         # cls_loss += matched_logits[0][pred_labels[argmax_overlaps.item()]] - matched_logits[0][gt_label]
+#         # cls_loss += ce_loss(matched_logits[:, :num_classes], gt_label[None])
+#         if cls_loss == 0:
+#             return 0.0
+#     # cls_loss /= gt_bboxes.shape[0]
+#     # return iou_loss / gt_bboxes.shape[0]
+#     return (cls_loss + iou_loss + feat_loss) / gt_bboxes.shape[0]
+
+def target_feature_loss(cur_pred, init_pred, cls_logits, feats, target_feature, num_classes = 20, score_thr = 0.3):
     pred_bboxes = cur_pred.bboxes
     pred_labels = cur_pred.labels
     pred_scores = cur_pred.scores
@@ -127,34 +172,67 @@ def target_feature_loss(cur_pred, init_pred, cls_logits, feats, model, dataset, 
         matched_logits = cls_logits[argmax_overlaps]
         feature_bbox = torch.round(matched_bboxes / 4).int()
         bbox_feature = feats[..., feature_bbox[1]:feature_bbox[3], feature_bbox[0]:feature_bbox[2]]
-        support_img = random.choice(dataset.per_class_imgs[gt_label.item()])
-        anns = dataset.per_img_anns[support_img]
-        target_anns = [ann for ann in anns if ann['category_id']==gt_label.item()]
-        target_instance = random.choice(target_anns)['bbox']
-        target_instance = ann_xywy_to_xyxy(target_instance, 4)
-        support_img = dataset.data_prefix.img + support_img
-        sup_img = cv2.imread(support_img)
-        sup_data = {
-            "inputs" : [torch.tensor(sup_img).permute(2,0,1).cuda()],
-        }
-        sup_data = model.data_preprocessor(sup_data, False)
-        features = model._run_forward(sup_data, mode='feature')
-        target_bbox_feature = features[..., target_instance[1]:target_instance[3], 
-                                        target_instance[0]:target_instance[2]]
-        target_bbox_feature = F.interpolate(target_bbox_feature, bbox_feature.shape[2:], mode = 'bilinear')
-        # feat_loss = F.kl_div(target_bbox_feature, bbox_feature, reduction = 'batchmean')
-        feat_loss = F.mse_loss(target_bbox_feature, bbox_feature)
+        target_bbox_feature = target_feature[gt_label.item()]
+        # target_bbox_feature = F.interpolate(target_bbox_feature, bbox_feature.shape[2:], mode = 'bilinear', align_corners=False)
+        bbox_feature = F.interpolate(bbox_feature, target_bbox_feature.shape[2:], mode = 'bilinear', align_corners=False)
+        N, C, H, W = bbox_feature.shape
+        feat_loss = F.kl_div(target_bbox_feature.reshape(C, -1),
+                             bbox_feature.reshape(C, -1), 
+                             reduction = 'batchmean') / (H*W)
+        # feat_loss = F.mse_loss(target_bbox_feature, bbox_feature)
         iou_loss += 1 - max_overlap + 1e-6
         # cls_loss += - matched_logits[0][gt_label]
         # alpha = (matched_logits[matched_logits > matched_logits[0][gt_label]].sum() // matched_logits[0][gt_label]).item()
-        cls_loss += matched_logits[matched_logits > matched_logits[0][gt_label]].sum() - matched_logits[0][gt_label]
+        cls_loss += matched_logits[matched_logits > matched_logits[0][gt_label]].sum() - 5 * matched_logits[0][gt_label]
         # cls_loss += matched_logits[0][pred_labels[argmax_overlaps.item()]] - matched_logits[0][gt_label]
         # cls_loss += ce_loss(matched_logits[:, :num_classes], gt_label[None])
         if cls_loss == 0:
+            print("cls loss == 0!")
             return 0.0
     # cls_loss /= gt_bboxes.shape[0]
-    # return iou_loss / gt_bboxes.shape[0]
-    return (cls_loss + iou_loss + feat_loss) / gt_bboxes.shape[0]
+    return (cls_loss + iou_loss + feat_loss)# / gt_bboxes.shape[0]
+
+
+def target_loss_v1(cur_pred, init_pred, cls_logits, feats, target_feature, num_classes = 20, score_thr = 0.3):
+    pred_bboxes = cur_pred.bboxes
+    pred_labels = cur_pred.labels
+    pred_scores = cur_pred.scores
+    gt_bboxes = init_pred.bboxes
+    gt_labels = init_pred.labels
+    ce_loss = nn.CrossEntropyLoss()
+    cls_loss = 0
+    iou_loss = 0
+    # feat_loss = 0
+    for gt_bbox, gt_label in zip(gt_bboxes, gt_labels):
+        ious = bbox_overlaps(gt_bbox.unsqueeze(0), pred_bboxes)
+        matched_ious = ious[ious > 0.3]
+        matched_bboxes = pred_bboxes[ious[0] > 0.3]
+        matched_logits = cls_logits[ious[0] > 0.3]
+        iou_loss += len(matched_ious) - matched_ious.sum()
+        # n = 0.0
+        for matched_logit in matched_logits:
+            cls_loss += matched_logit[matched_logit > matched_logit[gt_label]].sum() - matched_logit[gt_label]
+            # n += (matched_logit > matched_logit[gt_label]).sum()
+        # if n > 0:
+        #     cls_loss /= n
+    return (cls_loss + iou_loss)# / gt_bboxes.shape[0]
+
+
+def target_loss_v2(preds, init_pred, feats=None,num_classes = 20, score_thr = 0.3):
+    tar_bboxes = init_pred.bboxes
+    tar_labels = init_pred.labels
+    cls_loss = 0
+    iou_loss = 0 
+    for tar_bbox, tar_label, pred in zip(tar_bboxes, tar_labels, preds):
+        # ious = bbox_overlaps(tar_bbox.unsqueeze(0), pred.bboxes)[0]
+        # matched_ious = ious[ious > 0.3]
+        # matched_bboxes = pred.bboxes[ious[0] > 0.3]
+        # matched_logits = pred.logits[ious[0] > 0.3]
+        iou_loss += len(pred.iou) - pred.iou.sum()
+        for logit in pred.logits:
+            cls_loss += logit[logit > logit[tar_label]].sum() - logit[tar_label]
+    return (cls_loss + iou_loss)
+
 
 
 def feature_loss(feat, init_dets, target_label, model, dataset):

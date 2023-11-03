@@ -23,29 +23,30 @@ class RecordHook(Hook):
         self.with_ann = with_ann
         
     def after_test_iter(self, runner, batch_idx: int, data_batch: DATA_BATCH = None, outputs: Optional[Sequence] = None) -> None:
-        data_sample = data_batch['data_samples'][0]
-        images = data_batch['inputs'][0]        
-        if batch_idx == 0:
-            self.dataset_name = data_sample.img_path.strip().split('/')[5]
-            self.model_name = runner.model.__class__.__name__.lower()
-            self.attacker_name = runner.attacker.__class__.__name__[:-8].lower()
-            self.image_path = f'work_dirs/examples/{self.dataset_name}_{self.attacker_name}_{self.model_name}/images'
-            self.label_path = f'work_dirs/examples/{self.dataset_name}_{self.attacker_name}_{self.model_name}/labels'
-            mmengine.mkdir_or_exist(self.image_path)
-            mmengine.mkdir_or_exist(self.label_path)
-        img_name =  data_sample.img_path.strip().split('/')[-1]
-        adv_images = images.cpu().detach().numpy().astype(np.uint8).transpose(1,2,0)
-        cv2.imwrite(f'{self.image_path}/{img_name}',adv_images)
-        if self.with_ann:
-            bboxes = data_sample.gt_instances.bboxes
-            bboxes = get_box_tensor(bboxes)
-            labels = data_sample.gt_instances.labels
-            with open(f'{self.label_path}/{img_name[:-3]}txt', 'a') as f:
-                for i in range(bboxes.shape[0]):
-                    x1, y1, x2, y2 = bboxes[i].tolist()
-                    category = runner.test_dataloader.dataset.METAINFO['classes'][labels[i].item()]
-                    outline = ' '.join(list(map(str, [x1, y1, x2, y1, x2, y2, x1, y2, category, 0, '\n'])))
-                    f.write(outline)
+        if runner.attacker.is_attack:
+            data_sample = data_batch['data_samples'][0]
+            images = data_batch['inputs'][0]        
+            if batch_idx == 0:
+                self.dataset_name = data_sample.img_path.strip().split('/')[5]
+                self.model_name = runner.model.__class__.__name__.lower()
+                self.attacker_name = runner.attacker.__class__.__name__[:-8].lower()
+                self.image_path = f'work_dirs/examples/{self.dataset_name}_{self.attacker_name}_{self.model_name}/images'
+                self.label_path = f'work_dirs/examples/{self.dataset_name}_{self.attacker_name}_{self.model_name}/labels'
+                mmengine.mkdir_or_exist(self.image_path)
+                mmengine.mkdir_or_exist(self.label_path)
+            img_name =  data_sample.img_path.strip().split('/')[-1]
+            adv_images = images.cpu().detach().numpy().astype(np.uint8).transpose(1,2,0)
+            cv2.imwrite(f'{self.image_path}/{img_name}',adv_images)
+            if self.with_ann:
+                bboxes = data_sample.gt_instances.bboxes
+                bboxes = get_box_tensor(bboxes)
+                labels = data_sample.gt_instances.labels
+                with open(f'{self.label_path}/{img_name[:-3]}txt', 'a') as f:
+                    for i in range(bboxes.shape[0]):
+                        x1, y1, x2, y2 = bboxes[i].tolist()
+                        category = runner.test_dataloader.dataset.METAINFO['classes'][labels[i].item()]
+                        outline = ' '.join(list(map(str, [x1, y1, x2, y1, x2, y2, x1, y2, category, 0, '\n'])))
+                        f.write(outline)
 
     def after_test(self, runner) -> None:
         # if runner.test_dataloader.dataset.__class__.__name__ == 'DIORDataset':

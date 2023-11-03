@@ -17,8 +17,8 @@ def parse_args():
         help='the directory to save the file containing evaluation metrics')
     parser.add_argument("--attack", default='bim')
     parser.add_argument("--step_size", type = int, default=1)
-    parser.add_argument("--steps", type = int, default=10)
-    parser.add_argument("--epsilon", type = int, default=8)
+    parser.add_argument("--steps", type = int, default=20)
+    parser.add_argument("--epsilon", type = int, default=16)
     parser.add_argument(
         '--show', action='store_true', help='show prediction results')    
     parser.add_argument(
@@ -118,4 +118,5 @@ if __name__ == "__main__":
 
     # start testing
     runner.attack()
+    # print(f"There are {runner.attacker.count} invalid images")
     

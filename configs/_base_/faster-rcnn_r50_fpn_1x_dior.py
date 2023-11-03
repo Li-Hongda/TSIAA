@@ -10,11 +10,11 @@ model = dict(roi_head=dict(bbox_head=dict(num_classes=20)))
 # test_dataloader = dict(
 #     dataset=dict(
 #         data_prefix=dict(
-#             img='/disk2/lhd/codes/attack/work_dirs/examples/dior_bimiou_fasterrcnn/images/')))
+#             img='/disk2/lhd/codes/attack/work_dirs/examples/dior_tbim_fasterrcnn_logitsum4/images/')))
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior_tbim_fasterrcnn_logitsum4/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior_tabim_fasterrcnn/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 
