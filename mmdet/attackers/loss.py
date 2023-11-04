@@ -77,6 +77,24 @@ def target_class_loss_v1(cur_pred, init_pred, cls_logits, num_classes = 20, scor
     return cls_loss
 
 
+def target_loss_v0(cur_pred, tar_instances, cls_logits, num_classes = 20, score_thr = 0.3):
+    pred_scores = cur_pred.scores
+    pred_bboxes = cur_pred.bboxes[pred_scores > 0.3]
+    pred_labels = cur_pred.labels[pred_scores > 0.3]
+    cls_logits = cls_logits[pred_scores > 0.3]
+    tar_bboxes = tar_instances.bboxes
+    tar_labels = tar_instances.labels
+    ce_loss = nn.CrossEntropyLoss()
+    cls_loss = 0
+    iou_loss = 0
+    for tar_bbox, tar_label in zip(tar_bboxes, tar_labels):
+        ious = bbox_overlaps(tar_bbox.unsqueeze(0), pred_bboxes)[0]
+        matched_ious = ious[ious > 0]
+        iou_loss += len(matched_ious) - matched_ious.sum()
+        matched_logits = cls_logits[ious > 0]
+        cls_loss += ce_loss(matched_logits.sigmoid(), tar_label.repeat(matched_logits.shape[0]))
+    return (cls_loss + iou_loss) / tar_bboxes.shape[0]
+
 def target_loss(cur_pred, init_pred, cls_logits, num_classes = 20, score_thr = 0.3):
     pred_bboxes = cur_pred.bboxes
     pred_labels = cur_pred.labels
@@ -104,6 +122,7 @@ def target_loss(cur_pred, init_pred, cls_logits, num_classes = 20, score_thr = 0
     # cls_loss /= gt_bboxes.shape[0]
     # return iou_loss / gt_bboxes.shape[0]
     return (cls_loss + iou_loss) / gt_bboxes.shape[0]
+
 
 # def target_feature_loss(cur_pred, init_pred, cls_logits, feats, model, dataset, num_classes = 20, score_thr = 0.3):
 #     pred_bboxes = cur_pred.bboxes

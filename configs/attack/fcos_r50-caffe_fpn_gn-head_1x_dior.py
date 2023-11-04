@@ -75,3 +75,9 @@ optim_wrapper = dict(
     clip_grad=dict(max_norm=35, norm_type=2))
 
 runner_type = "AttackRunner"
+custom_hooks = [
+    dict(
+        type='RecordHook',
+        output_dir = 'work_dirs/examples',
+        priority=49)
+]

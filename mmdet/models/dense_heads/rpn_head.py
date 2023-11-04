@@ -16,6 +16,8 @@ from mmdet.structures.bbox import (cat_boxes, empty_box_as, get_box_tensor,
                                    get_box_wh, scale_boxes)
 from mmdet.utils import InstanceList, MultiConfig, OptInstanceList
 from .anchor_head import AnchorHead
+from ..utils import (filter_scores_and_topk, select_single_mlvl,
+                     unpack_gt_instances)
 
 
 @MODELS.register_module()
@@ -130,6 +132,59 @@ class RPNHead(AnchorHead):
             batch_gt_instances_ignore=batch_gt_instances_ignore)
         return dict(
             loss_rpn_cls=losses['loss_cls'], loss_rpn_bbox=losses['loss_bbox'])
+
+    def predict_by_feat(self,
+                        cls_scores: List[Tensor],
+                        bbox_preds: List[Tensor],
+                        score_factors: Optional[List[Tensor]] = None,
+                        batch_img_metas: Optional[List[dict]] = None,
+                        cfg: Optional[ConfigDict] = None,
+                        rescale: bool = False,
+                        with_nms: bool = True) -> InstanceList:
+        assert len(cls_scores) == len(bbox_preds)
+
+        if score_factors is None:
+            # e.g. Retina, FreeAnchor, Foveabox, etc.
+            with_score_factors = False
+        else:
+            # e.g. FCOS, PAA, ATSS, AutoAssign, etc.
+            with_score_factors = True
+            assert len(cls_scores) == len(score_factors)
+
+        num_levels = len(cls_scores)
+
+        featmap_sizes = [cls_scores[i].shape[-2:] for i in range(num_levels)]
+        mlvl_priors = self.prior_generator.grid_priors(
+            featmap_sizes,
+            dtype=cls_scores[0].dtype,
+            device=cls_scores[0].device)
+
+        result_list = []
+
+        for img_id in range(len(batch_img_metas)):
+            img_meta = batch_img_metas[img_id]
+            cls_score_list = select_single_mlvl(
+                cls_scores, img_id, detach=False)
+            bbox_pred_list = select_single_mlvl(
+                bbox_preds, img_id, detach=False)
+            if with_score_factors:
+                score_factor_list = select_single_mlvl(
+                    score_factors, img_id, detach=False)
+            else:
+                score_factor_list = [None for _ in range(num_levels)]
+
+            results = self._predict_by_feat_single(
+                cls_score_list=cls_score_list,
+                bbox_pred_list=bbox_pred_list,
+                score_factor_list=score_factor_list,
+                mlvl_priors=mlvl_priors,
+                img_meta=img_meta,
+                cfg=cfg,
+                rescale=rescale,
+                with_nms=with_nms)
+            result_list.append(results)
+        return result_list
+
 
     def _predict_by_feat_single(self,
                                 cls_score_list: List[Tensor],

@@ -423,18 +423,18 @@ class BBoxHead(BaseModule):
 
         return losses
 
-    def predict(self,
-                        rois: Tuple[Tensor],
-                        cls_scores: Tuple[Tensor],
-                        bbox_preds: Tuple[Tensor],
-                        batch_img_metas: List[dict],
-                        rcnn_test_cfg: Optional[ConfigDict] = None,
-                        rescale: bool = False) -> InstanceList:
+    def inference(self,
+                 rois: Tuple[Tensor],
+                 cls_scores: Tuple[Tensor],
+                 bbox_preds: Tuple[Tensor],
+                 batch_img_metas: List[dict],
+                 rcnn_test_cfg: Optional[ConfigDict] = None,
+                 rescale: bool = False) -> InstanceList:
         assert len(cls_scores) == len(bbox_preds)
         result_list = []
         for img_id in range(len(batch_img_metas)):
             img_meta = batch_img_metas[img_id]
-            results, cls_logits = self.predict_single(
+            results, cls_logits = self.inference_single(
                 roi=rois[img_id],
                 cls_score=cls_scores[img_id],
                 bbox_pred=bbox_preds[img_id],
@@ -443,16 +443,15 @@ class BBoxHead(BaseModule):
                 rcnn_test_cfg=rcnn_test_cfg)
             result_list.append(results)
 
-        return result_list, cls_logits
+        return results, cls_logits
 
-    def predict_single(
-            self,
-            roi: Tensor,
-            cls_score: Tensor,
-            bbox_pred: Tensor,
-            img_meta: dict,
-            rescale: bool = False,
-            rcnn_test_cfg: Optional[ConfigDict] = None) -> InstanceData:
+    def inference_single(self,
+                        roi: Tensor,
+                        cls_score: Tensor,
+                        bbox_pred: Tensor,
+                        img_meta: dict,
+                        rescale: bool = False,
+                        rcnn_test_cfg: Optional[ConfigDict] = None) -> InstanceData:
 
         results = InstanceData()
         if roi.shape[0] == 0:
@@ -551,9 +550,8 @@ class BBoxHead(BaseModule):
                 img_meta=img_meta,
                 rescale=rescale,
                 rcnn_test_cfg=rcnn_test_cfg)
-            result_list.append(results)
-
-        return result_list, cls_logits
+            # result_list.append(results)
+        return results, cls_logits
 
     def _predict_by_feat_single(
             self,

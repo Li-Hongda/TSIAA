@@ -86,24 +86,37 @@ def get_target_label(logits, rank):
     return torch.as_tensor(labels)
 
 
-def get_target_label_v1(gts, dts, logits, rank):
+def get_target_instance(gts, dts, logits, num_classes, rank):
     visited = [False] * len(dts)
     labels = []
     bboxes = []
-    num_classes = logits.shape[1] - 1
-    tar_ins = InstanceData()
+    gts.bboxes = gts.bboxes.cuda()
+    tar_ins = InstanceData()      
     for gt in gts:
-        ious = bbox_overlaps(gt.bboxes.tensor.cuda(), dts.bboxes)
-        max_overlap, argmax_overlaps = ious.max(1)
-        if max_overlap.item() > 0.5 and dts.scores[argmax_overlaps.item()] > 0.3 and not visited[argmax_overlaps.item()]:
-            visited[argmax_overlaps.item()] = True
-            logit_list = logits[argmax_overlaps.item()][:num_classes].tolist()
-            labels.append(torch.tensor([logit_list.index(sorted(logit_list)[num_classes - rank])]))
-            bboxes.append(dts.bboxes[argmax_overlaps.item()])
+        ious = bbox_overlaps(gt.bboxes.tensor.cuda(), dts.bboxes)[0]
+        matched_idx = torch.nonzero(ious > 0.5)[:, 0]
+        sorted_ious, sorted_index = ious[matched_idx].sort(descending=True)
+        sorted_index = matched_idx[sorted_index]
+        for i, idx in enumerate(sorted_index):
+            if sorted_ious[i] > 0.5 and not visited[idx]:
+                visited[idx] = True
+                sorted_logits, sorted_indices = logits[idx][:num_classes].sort(descending=True)
+                labels.append(sorted_indices[rank-1])
+                # logit_list = logits[idx][:num_classes].tolist()
+                # labels.append(torch.tensor([logit_list.index(sorted(logit_list)[num_classes - rank])]))
+                bboxes.append(dts.bboxes[idx])
+                break
+        # max_overlap, argmax_overlaps = ious.max(1)
+        # if max_overlap.item() > 0.5 and dts.scores[argmax_overlaps.item()] > 0.3 and not visited[argmax_overlaps.item()]:
+        # if max_overlap.item() > 0.5 and not visited[argmax_overlaps.item()]:
+        #     visited[argmax_overlaps.item()] = True
+        #     logit_list = logits[argmax_overlaps.item()][:num_classes].tolist()
+        #     labels.append(torch.tensor([logit_list.index(sorted(logit_list)[num_classes - rank])]))
+        #     bboxes.append(dts.bboxes[argmax_overlaps.item()])
     if bboxes == []:
         return None
-    tar_ins.bboxes = torch.stack(bboxes).cuda()
-    tar_ins.labels = torch.cat(labels).cuda()
+    tar_ins.bboxes = torch.stack(bboxes)
+    tar_ins.labels = torch.stack(labels)
     return tar_ins 
             
 
