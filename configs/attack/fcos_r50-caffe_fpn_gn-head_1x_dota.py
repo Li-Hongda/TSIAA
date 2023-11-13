@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/dior_detection.py',
+    '../_base_/datasets/dota_detection.py',
     '../_base_/schedules/schedule_1x.py', '../_base_/default_runtime.py'
 ]
 
@@ -34,7 +34,7 @@ model = dict(
         relu_before_extra_convs=True),
     bbox_head=dict(
         type='FCOSHead',
-        num_classes=20,
+        num_classes=15,
         in_channels=256,
         stacked_convs=4,
         feat_channels=256,
@@ -74,17 +74,10 @@ optim_wrapper = dict(
     paramwise_cfg=dict(bias_lr_mult=2., bias_decay_mult=0.),
     clip_grad=dict(max_norm=35, norm_type=2))
 
-# test_dataloader = dict(
-#     dataset=dict(
-#         data_prefix=dict(
-#             img='/disk2/lhd/codes/attack/work_dirs/examples/dior_bim_fasterrcnn_step10/')))
-
-
-test_dataloader = dict(
-    dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior_tbim_fcos/',
-        ann_file='select.json',
-        data_prefix=dict(img='images/')))
-
-test_evaluator = dict(type='ASRMetric',
-                      metric=['asr', 'dr'])
+runner_type = "AttackRunner"
+custom_hooks = [
+    dict(
+        type='RecordHook',
+        output_dir = 'work_dirs/examples',
+        priority=49)
+]

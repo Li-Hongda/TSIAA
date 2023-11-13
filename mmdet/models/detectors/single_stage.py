@@ -130,6 +130,18 @@ class SingleStageDetector(BaseDetector):
             tuple[list]: A tuple of features from ``bbox_head`` forward.
         """
         x = self.extract_feat(batch_inputs)
+        # a = x[0][0].abs().sum(0).cpu().numpy()
+        # a = (a - a.min()) / (a.max() - a.min()) * 255.
+        # c = a / 255
+        # d = np.where(c>0.5, 255, 0)
+        # import cv2
+        # import numpy as np
+        # bs = batch_data_samples[0].gt_instances.bboxes.cpu().numpy()
+        # bs /=8
+        # bs = bs.astype(np.int64)
+        # for b in bs:
+        #     cv2.rectangle(a, (b[0], b[1]), (b[2],b[3]), color=(255))   
+        # cv2.imwrite("work_dirs/debug.png", a.astype(np.uint8))
         results = self.bbox_head.forward(x)
         return results
 

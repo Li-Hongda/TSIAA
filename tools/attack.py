@@ -19,6 +19,7 @@ def parse_args():
     parser.add_argument("--step_size", type = int, default=1)
     parser.add_argument("--steps", type = int, default=20)
     parser.add_argument("--epsilon", type = int, default=16)
+    parser.add_argument("--name", type=str, default='test')
     parser.add_argument(
         '--show', action='store_true', help='show prediction results')    
     parser.add_argument(
@@ -117,6 +118,7 @@ if __name__ == "__main__":
         runner = RUNNERS.build(cfg)
 
     # start testing
+    runner.name = args.name
     runner.attack()
     # print(f"There are {runner.attacker.count} invalid images")
     

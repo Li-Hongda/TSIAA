@@ -323,6 +323,129 @@ class YOLOXHead(BaseDenseHead):
 
         return result_list
 
+    def predict_logits(self,
+                        cls_scores: List[Tensor],
+                        bbox_preds: List[Tensor],
+                        objectnesses: Optional[List[Tensor]],
+                        batch_img_metas: Optional[List[dict]] = None,
+                        cfg: Optional[ConfigDict] = None,
+                        rescale: bool = False,
+                        with_nms: bool = True) -> List[InstanceData]:
+        assert len(cls_scores) == len(bbox_preds) == len(objectnesses)
+        cfg = self.test_cfg if cfg is None else cfg
+
+        num_imgs = len(batch_img_metas)
+        featmap_sizes = [cls_score.shape[2:] for cls_score in cls_scores]
+        mlvl_priors = self.prior_generator.grid_priors(
+            featmap_sizes,
+            dtype=cls_scores[0].dtype,
+            device=cls_scores[0].device,
+            with_stride=True)
+
+        # flatten cls_scores, bbox_preds and objectness
+        flatten_cls_scores = [
+            cls_score.permute(0, 2, 3, 1).reshape(num_imgs, -1,
+                                                  self.cls_out_channels)
+            for cls_score in cls_scores
+        ]
+        flatten_bbox_preds = [
+            bbox_pred.permute(0, 2, 3, 1).reshape(num_imgs, -1, 4)
+            for bbox_pred in bbox_preds
+        ]
+        flatten_objectness = [
+            objectness.permute(0, 2, 3, 1).reshape(num_imgs, -1)
+            for objectness in objectnesses
+        ]
+
+        flatten_cls_scores = torch.cat(flatten_cls_scores, dim=1).sigmoid()
+        flatten_bbox_preds = torch.cat(flatten_bbox_preds, dim=1)
+        flatten_objectness = torch.cat(flatten_objectness, dim=1).sigmoid()
+        flatten_priors = torch.cat(mlvl_priors)
+
+        flatten_bboxes = self._bbox_decode(flatten_priors, flatten_bbox_preds)
+
+        result_list = []
+        for img_id, img_meta in enumerate(batch_img_metas):
+            max_scores, labels = torch.max(flatten_cls_scores[img_id], 1)
+            valid_mask = flatten_objectness[
+                img_id] * max_scores >= cfg.score_thr
+            results = InstanceData(
+                bboxes=flatten_bboxes[img_id][valid_mask],
+                scores=max_scores[valid_mask] *
+                flatten_objectness[img_id][valid_mask],
+                labels=labels[valid_mask],
+                logits=flatten_cls_scores[img_id][valid_mask])
+            results = self._bbox_post_process(
+                    results=results,
+                    cfg=cfg,
+                    rescale=rescale,
+                    with_nms=with_nms,
+                    img_meta=img_meta)
+
+        return results, results.logits
+
+    def inference(self,
+                cls_scores: List[Tensor],
+                bbox_preds: List[Tensor],
+                objectnesses: Optional[List[Tensor]],
+                batch_img_metas: Optional[List[dict]] = None,
+                cfg: Optional[ConfigDict] = None,
+                rescale: bool = False,
+                with_nms: bool = True) -> List[InstanceData]:
+
+        assert len(cls_scores) == len(bbox_preds) == len(objectnesses)
+        cfg = self.test_cfg if cfg is None else cfg
+
+        num_imgs = len(batch_img_metas)
+        featmap_sizes = [cls_score.shape[2:] for cls_score in cls_scores]
+        mlvl_priors = self.prior_generator.grid_priors(
+            featmap_sizes,
+            dtype=cls_scores[0].dtype,
+            device=cls_scores[0].device,
+            with_stride=True)
+
+        # flatten cls_scores, bbox_preds and objectness
+        flatten_cls_scores = [
+            cls_score.permute(0, 2, 3, 1).reshape(num_imgs, -1,
+                                                  self.cls_out_channels)
+            for cls_score in cls_scores
+        ]
+        flatten_bbox_preds = [
+            bbox_pred.permute(0, 2, 3, 1).reshape(num_imgs, -1, 4)
+            for bbox_pred in bbox_preds
+        ]
+        flatten_objectness = [
+            objectness.permute(0, 2, 3, 1).reshape(num_imgs, -1)
+            for objectness in objectnesses
+        ]
+
+        flatten_cls_scores = torch.cat(flatten_cls_scores, dim=1).sigmoid()
+        flatten_bbox_preds = torch.cat(flatten_bbox_preds, dim=1)
+        flatten_objectness = torch.cat(flatten_objectness, dim=1).sigmoid()
+        flatten_priors = torch.cat(mlvl_priors)
+
+        flatten_bboxes = self._bbox_decode(flatten_priors, flatten_bbox_preds)
+
+        result_list = []
+        for img_id, img_meta in enumerate(batch_img_metas):
+            max_scores, labels = torch.max(flatten_cls_scores[img_id], 1)
+            valid_mask = flatten_objectness[
+                img_id] * max_scores >= cfg.score_thr
+            results = InstanceData(
+                bboxes=flatten_bboxes[img_id][valid_mask],
+                scores=max_scores[valid_mask] *
+                flatten_objectness[img_id][valid_mask],
+                labels=labels[valid_mask])
+            cls_logits = flatten_cls_scores[img_id][valid_mask]
+
+            if rescale:
+                assert img_meta.get('scale_factor') is not None
+                results.bboxes /= results.bboxes.new_tensor(
+                    img_meta['scale_factor']).repeat((1, 2))
+
+        return results, cls_logits
+
+
     def _bbox_decode(self, priors: Tensor, bbox_preds: Tensor) -> Tensor:
         """Decode regression results (delta_x, delta_x, w, h) to bboxes (tl_x,
         tl_y, br_x, br_y).

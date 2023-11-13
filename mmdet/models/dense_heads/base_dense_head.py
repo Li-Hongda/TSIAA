@@ -249,8 +249,6 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
                 rescale=rescale,
                 with_nms=with_nms)
             # result_list.append(results)
-        if results.bboxes.shape[0] != cls_logits.shape[0]:
-            print()
         return results, cls_logits
 
     def inference_single(self,
@@ -289,7 +287,7 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
 
             assert cls_score.size()[-2:] == bbox_pred.size()[-2:]
 
-            dim = self.bbox_coder.encode_size
+            dim = 4
             bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, dim)
             if with_score_factors:
                 score_factor = score_factor.permute(1, 2,
@@ -328,7 +326,10 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
 
         bbox_pred = torch.cat(mlvl_bbox_preds)
         priors = cat_boxes(mlvl_valid_priors)
-        bboxes = self.bbox_coder.decode(priors, bbox_pred, max_shape=img_shape)
+        if hasattr(self, "bbox_coder"):
+            bboxes = self.bbox_coder.decode(priors, bbox_pred, max_shape=img_shape)
+        else:
+            bboxes = self._bbox_decode(priors, bbox_pred)
 
         results = InstanceData()
         results.bboxes = bboxes
@@ -364,11 +365,11 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
             results.scores = results.scores * score_factors
 
         # filter small size bboxes
-        if cfg.get('min_bbox_size', -1) >= 0:
-            w, h = get_box_wh(results.bboxes)
-            valid_mask = (w > cfg.min_bbox_size) & (h > cfg.min_bbox_size)
-            if not valid_mask.all():
-                results = results[valid_mask]
+        # if cfg.get('min_bbox_size', -1) >= 0:
+        #     w, h = get_box_wh(results.bboxes)
+        #     valid_mask = (w > cfg.min_bbox_size) & (h > cfg.min_bbox_size)
+        #     if not valid_mask.all():
+        #         results = results[valid_mask]
 
         return results, logits  
 
@@ -749,3 +750,185 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
             final_results.append(results)
 
         return final_results
+    
+    def predict_logits(self,
+                        cls_scores: List[Tensor],
+                        bbox_preds: List[Tensor],
+                        score_factors: Optional[List[Tensor]] = None,
+                        batch_img_metas: Optional[List[dict]] = None,
+                        cfg: Optional[ConfigDict] = None,
+                        rescale: bool = False,
+                        with_nms: bool = True) -> InstanceList:
+        assert len(cls_scores) == len(bbox_preds)
+
+        if score_factors is None:
+            # e.g. Retina, FreeAnchor, Foveabox, etc.
+            with_score_factors = False
+        else:
+            # e.g. FCOS, PAA, ATSS, AutoAssign, etc.
+            with_score_factors = True
+            assert len(cls_scores) == len(score_factors)
+
+        num_levels = len(cls_scores)
+
+        featmap_sizes = [cls_scores[i].shape[-2:] for i in range(num_levels)]
+        mlvl_priors = self.prior_generator.grid_priors(
+            featmap_sizes,
+            dtype=cls_scores[0].dtype,
+            device=cls_scores[0].device)
+
+        # result_list = []
+
+        for img_id in range(len(batch_img_metas)):
+            img_meta = batch_img_metas[img_id]
+            cls_score_list = select_single_mlvl(
+                cls_scores, img_id, detach=False)
+            bbox_pred_list = select_single_mlvl(
+                bbox_preds, img_id, detach=False)
+            if with_score_factors:
+                score_factor_list = select_single_mlvl(
+                    score_factors, img_id, detach=False)
+            else:
+                score_factor_list = [None for _ in range(num_levels)]
+
+            results, cls_logits = self.predict_logits_single(
+                cls_score_list=cls_score_list,
+                bbox_pred_list=bbox_pred_list,
+                score_factor_list=score_factor_list,
+                mlvl_priors=mlvl_priors,
+                img_meta=img_meta,
+                cfg=cfg,
+                rescale=rescale,
+                with_nms=with_nms)
+            # result_list.append(results)
+        return results, cls_logits
+
+    def predict_logits_single(self,
+                                cls_score_list: List[Tensor],
+                                bbox_pred_list: List[Tensor],
+                                score_factor_list: List[Tensor],
+                                mlvl_priors: List[Tensor],
+                                img_meta: dict,
+                                cfg: ConfigDict,
+                                rescale: bool = False,
+                                with_nms: bool = True) -> InstanceData:
+        if score_factor_list[0] is None:
+            # e.g. Retina, FreeAnchor, etc.
+            with_score_factors = False
+        else:
+            # e.g. FCOS, PAA, ATSS, etc.
+            with_score_factors = True
+
+        cfg = self.test_cfg if cfg is None else cfg
+        cfg = copy.deepcopy(cfg)
+        img_shape = img_meta['img_shape']
+        nms_pre = cfg.get('nms_pre', -1)
+
+        mlvl_logits = []
+        mlvl_bbox_preds = []
+        mlvl_valid_priors = []
+        mlvl_scores = []
+        mlvl_labels = []
+        if with_score_factors:
+            mlvl_score_factors = []
+        else:
+            mlvl_score_factors = None
+        for level_idx, (cls_score, bbox_pred, score_factor, priors) in \
+                enumerate(zip(cls_score_list, bbox_pred_list,
+                              score_factor_list, mlvl_priors)):
+
+            assert cls_score.size()[-2:] == bbox_pred.size()[-2:]
+
+            dim = self.bbox_coder.encode_size
+            bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, dim)
+            if with_score_factors:
+                score_factor = score_factor.permute(1, 2,
+                                                    0).reshape(-1).sigmoid()
+            cls_score = cls_score.permute(1, 2,
+                                          0).reshape(-1, self.cls_out_channels)
+            if self.use_sigmoid_cls:
+                scores = cls_score.sigmoid()
+            else:
+                # remind that we set FG labels to [0, num_class-1]
+                # since mmdet v2.0
+                # BG cat_id: num_class
+                scores = cls_score.softmax(-1)[:, :-1]
+
+            score_thr = cfg.get('score_thr', 0)
+
+            results = filter_scores_and_topk(
+                scores, score_thr, nms_pre,
+                dict(bbox_pred=bbox_pred, priors=priors))
+            scores, labels, keep_idxs, filtered_results = results
+
+            bbox_pred = filtered_results['bbox_pred']
+            priors = filtered_results['priors']
+
+            if with_score_factors:
+                score_factor = score_factor[keep_idxs]
+
+            mlvl_logits.append(cls_score[keep_idxs])
+            mlvl_bbox_preds.append(bbox_pred)
+            mlvl_valid_priors.append(priors)
+            mlvl_scores.append(scores)
+            mlvl_labels.append(labels)
+
+            if with_score_factors:
+                mlvl_score_factors.append(score_factor)
+
+        bbox_pred = torch.cat(mlvl_bbox_preds)
+        priors = cat_boxes(mlvl_valid_priors)
+        bboxes = self.bbox_coder.decode(priors, bbox_pred, max_shape=img_shape)
+
+        results = InstanceData()
+        results.bboxes = bboxes
+        results.scores = torch.cat(mlvl_scores)
+        results.labels = torch.cat(mlvl_labels)
+        cls_logits = torch.cat(mlvl_logits)
+        if with_score_factors:
+            results.score_factors = torch.cat(mlvl_score_factors)
+        results, cls_logits = self.post_process_logits(
+            results=results,
+            logits=cls_logits, 
+            cfg=cfg,
+            rescale=rescale,
+            with_nms=with_nms,
+            img_meta=img_meta)
+        return results, cls_logits
+
+    def post_process_logits(self,
+                           results: InstanceData,
+                           logits: Tensor,
+                           cfg: ConfigDict,
+                           rescale: bool = False,
+                           with_nms: bool = True,
+                           img_meta: Optional[dict] = None) -> InstanceData:
+        if rescale:
+            assert img_meta.get('scale_factor') is not None
+            scale_factor = [1 / s for s in img_meta['scale_factor']]
+            results.bboxes = scale_boxes(results.bboxes, scale_factor)
+
+        if hasattr(results, 'score_factors'):
+            # TODO： Add sqrt operation in order to be consistent with
+            #  the paper.
+            score_factors = results.pop('score_factors')
+            results.scores = results.scores * score_factors
+
+        # filter small size bboxes
+        if cfg.get('min_bbox_size', -1) >= 0:
+            w, h = get_box_wh(results.bboxes)
+            valid_mask = (w > cfg.min_bbox_size) & (h > cfg.min_bbox_size)
+            if not valid_mask.all():
+                results = results[valid_mask]
+
+        # TODO: deal with `with_nms` and `nms_cfg=None` in test_cfg
+        if with_nms and results.bboxes.numel() > 0:
+            bboxes = get_box_tensor(results.bboxes)
+            det_bboxes, keep_idxs = batched_nms(bboxes, results.scores,
+                                                results.labels, cfg.nms)
+            results = results[keep_idxs]
+            # some nms would reweight the score, such as softnms
+            results.scores = det_bboxes[:, -1]
+            results = results[:cfg.max_per_img]
+
+        return results, logits[keep_idxs][:cfg.max_per_img]    

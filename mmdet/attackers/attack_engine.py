@@ -30,13 +30,13 @@ class RecordHook(Hook):
                 self.dataset_name = data_sample.img_path.strip().split('/')[5]
                 self.model_name = runner.model.__class__.__name__.lower()
                 self.attacker_name = runner.attacker.__class__.__name__[:-8].lower()
-                self.image_path = f'work_dirs/examples/{self.dataset_name}_{self.attacker_name}_{self.model_name}/images'
-                self.label_path = f'work_dirs/examples/{self.dataset_name}_{self.attacker_name}_{self.model_name}/labels'
+                self.image_path = f'work_dirs/examples/{self.dataset_name}_{self.attacker_name}_{self.model_name}_{runner.name}/images'
+                self.label_path = f'work_dirs/examples/{self.dataset_name}_{self.attacker_name}_{self.model_name}_{runner.name}/labels'
                 mmengine.mkdir_or_exist(self.image_path)
                 mmengine.mkdir_or_exist(self.label_path)
             img_name =  data_sample.img_path.strip().split('/')[-1]
             adv_images = images.cpu().detach().numpy().astype(np.uint8).transpose(1,2,0)
-            cv2.imwrite(f'{self.image_path}/{img_name}',adv_images)
+            cv2.imwrite(f'{self.image_path}/{img_name}', adv_images)
             if self.with_ann:
                 bboxes = data_sample.gt_instances.bboxes
                 bboxes = get_box_tensor(bboxes)

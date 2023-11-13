@@ -5,7 +5,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
-from .utils import ann_xywh_to_xyxy
+from mmdet.models.losses import weight_reduce_loss
+
+
 def assign_bboxes(pred_bboxes, init_bboxes, iou_thr):
     overlaps = bbox_overlaps(pred_bboxes, init_bboxes)
     init = []
@@ -77,25 +79,54 @@ def target_class_loss_v1(cur_pred, init_pred, cls_logits, num_classes = 20, scor
     return cls_loss
 
 
-def target_loss_v0(cur_pred, tar_instances, cls_logits, num_classes = 20, score_thr = 0.3):
+def target_bim_loss_v1(cur_pred, tar_instances, init_results, cls_logits, num_classes = 20, score_thr = 0.3):
     pred_scores = cur_pred.scores
-    pred_bboxes = cur_pred.bboxes[pred_scores > 0.3]
-    pred_labels = cur_pred.labels[pred_scores > 0.3]
-    cls_logits = cls_logits[pred_scores > 0.3]
+    pred_bboxes = cur_pred.bboxes[pred_scores>0.3]
+    pred_labels = cur_pred.labels[pred_scores>0.3]
+    cls_logits = cls_logits[pred_scores>0.3]
     tar_bboxes = tar_instances.bboxes
     tar_labels = tar_instances.labels
     ce_loss = nn.CrossEntropyLoss()
     cls_loss = 0
     iou_loss = 0
+    visited = [False] * len(pred_bboxes)
     for tar_bbox, tar_label in zip(tar_bboxes, tar_labels):
         ious = bbox_overlaps(tar_bbox.unsqueeze(0), pred_bboxes)[0]
-        matched_ious = ious[ious > 0]
-        iou_loss += len(matched_ious) - matched_ious.sum()
-        matched_logits = cls_logits[ious > 0]
-        cls_loss += ce_loss(matched_logits.sigmoid(), tar_label.repeat(matched_logits.shape[0]))
+        matched_idx = torch.nonzero(ious > 0.5)[:, 0]
+        sorted_ious, sorted_index = ious[matched_idx].sort(descending=True)
+        sorted_index = matched_idx[sorted_index]
+        for i, idx in enumerate(sorted_index):
+            if sorted_ious[i] > 0.5 and not visited[idx]:
+                visited[idx] = True
+                iou_loss += 1 - sorted_ious[i]
+                cls_loss += ce_loss(cls_logits[idx][None, :num_classes], tar_label.view(-1))
+                break
+
     return (cls_loss + iou_loss) / tar_bboxes.shape[0]
 
-def target_loss(cur_pred, init_pred, cls_logits, num_classes = 20, score_thr = 0.3):
+
+def target_bim_loss_v0(cur_pred, tar_instances, init_results, cls_logits, num_classes = 20, score_thr = 0.3):
+    pred_scores = cur_pred.scores
+    pred_bboxes = cur_pred.bboxes
+    pred_labels = cur_pred.labels
+    cls_logits = cls_logits
+    tar_bboxes = tar_instances.bboxes
+    tar_labels = tar_instances.labels
+    ce_loss = nn.CrossEntropyLoss()
+    cls_loss = 0
+    iou_loss = 0
+    n = 0
+    for tar_bbox, tar_label in zip(tar_bboxes, tar_labels):
+        ious = bbox_overlaps(tar_bbox.unsqueeze(0), pred_bboxes)[0]
+        matched_ious = ious[ious > 0.5]
+        # sorted_ious, sorted_index = matched_ious.sort(descending=True)
+        iou_loss += len(matched_ious) - matched_ious.sum()
+        matched_logits = cls_logits[ious > 0.5]
+        cls_loss += ce_loss(matched_logits.sigmoid(), tar_label.repeat(matched_logits.shape[0]))
+        n += matched_logits.shape[0]
+    return (cls_loss + iou_loss) / n
+
+def target_bim_loss(cur_pred, init_pred, cls_logits, num_classes = 20, score_thr = 0.3):
     pred_bboxes = cur_pred.bboxes
     pred_labels = cur_pred.labels
     pred_scores = cur_pred.scores
@@ -243,16 +274,16 @@ def target_loss_v2(preds, init_pred, feats=None,num_classes = 20, score_thr = 0.
     cls_loss = 0
     iou_loss = 0 
     for tar_bbox, tar_label, pred in zip(tar_bboxes, tar_labels, preds):
-        # ious = bbox_overlaps(tar_bbox.unsqueeze(0), pred.bboxes)[0]
-        # matched_ious = ious[ious > 0.3]
-        # matched_bboxes = pred.bboxes[ious[0] > 0.3]
-        # matched_logits = pred.logits[ious[0] > 0.3]
         iou_loss += len(pred.iou) - pred.iou.sum()
-        for logit in pred.logits:
-            cls_loss += logit[logit > logit[tar_label]].sum() - logit[tar_label]
+        single_loss = F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]), reduction='none')
+        cls_loss += weight_reduce_loss(single_loss, pred.weights, reduction='sum')
+        # cls_loss += F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]))
+        # for logit, weight in zip(pred.logits, pred.weights):
+        #     single_loss = logit[logit > logit[tar_label]].sum() - logit[tar_label]
+        #     cls_loss += weight * single_loss
+            # cls_loss += logit[logit > logit[tar_label]].sum() - logit[tar_label]
     return (cls_loss + iou_loss)
-
-
+               
 
 def feature_loss(feat, init_dets, target_label, model, dataset):
     feature_bboxes = init_dets.bboxes // 4
