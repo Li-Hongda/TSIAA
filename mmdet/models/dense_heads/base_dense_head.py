@@ -364,13 +364,6 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
             score_factors = results.pop('score_factors')
             results.scores = results.scores * score_factors
 
-        # filter small size bboxes
-        # if cfg.get('min_bbox_size', -1) >= 0:
-        #     w, h = get_box_wh(results.bboxes)
-        #     valid_mask = (w > cfg.min_bbox_size) & (h > cfg.min_bbox_size)
-        #     if not valid_mask.all():
-        #         results = results[valid_mask]
-
         return results, logits  
 
     def predict_by_feat(self,

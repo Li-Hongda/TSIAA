@@ -483,7 +483,7 @@ class TBIMAttacker(BIMAttacker):
         if init_results.bboxes.shape[0] == 0:
             return data
 
-        tar_instances = get_target_instance(data['data_samples'][0].gt_instances, init_results, cls_logits, num_classes, rank = 5)
+        tar_instances, ori_labels = get_target_instance_v0(data['data_samples'][0].gt_instances, init_results, cls_logits, num_classes, rank = 5)
         if tar_instances == None:
             self.is_attack = False
             if not hasattr(self, 'count'):
@@ -517,7 +517,7 @@ class TBIMAttacker(BIMAttacker):
                             batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
             if results.bboxes.shape[0] == 0:
                 break
-            loss = target_bim_loss_v1(results, tar_instances, init_results, cls_logits, num_classes)
+            loss = target_bim_loss_v1(results, tar_instances, ori_labels, cls_logits, num_classes)
             if loss == 0:
                 print("Attack failed.")
                 adv_data = {
@@ -737,8 +737,8 @@ class TABIMAttacker(TBIMAttacker):
     
     def attack(self, model, data, dataset = None):
         # if data['data_samples'][0].img_path == '/disk2/lhd/datasets/attack/dota/images/P1128__1__0___480.png':
-        if data['data_samples'][0].img_path == '/disk2/lhd/datasets/attack/dior/images/17354.png':
-            print()
+        # if data['data_samples'][0].img_path == '/disk2/lhd/datasets/attack/dior/images/16914.png':
+        #     print()
         ori_images = data['inputs'][0].cuda()
         model = self.prepare_model(model)
         delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
@@ -803,27 +803,91 @@ class TABIMAttacker(TBIMAttacker):
         }
         return adv_data
     
+    # def select_targets(self, results, tar_instance, cls_logits, num_classes):
+    #     select_results = []
+    #     for tar in tar_instance:
+    #         ins = InstanceData()
+    #         iou = bbox_overlaps(tar.bboxes, results.bboxes)[0]
+    #         index = iou > 0.5
+    #         ins.bboxes = results.bboxes[index]
+    #         ins.labels = results.labels[index]
+    #         ins.scores = results.scores[index]
+    #         ins.logits = cls_logits[index]
+    #         ins.iou = iou[index]
+    #         # cls_scores = F.cross_entropy(cls_logits[index][:, :num_classes], \
+    #         #     tar.labels.repeat(cls_logits[index].shape[0]), reduction = 'none')
+    #         weights = iou[index] * ins.scores
+    #         # select_num = (weights > weights.mean()).sum()
+    #         select_num = weights.sum().long()
+    #         sorted_scores, sorted_indexes = torch.sort(weights, descending=True)
+    #         ins.weights = weights
+    #         select_results.append(ins[sorted_indexes[:select_num]])
+    #     return select_results
+    
+    
+    # def select_targets(self, results, tar_instance, cls_logits, num_classes):
+    #     select_results = []
+    #     ious = bbox_overlaps(tar_instance.bboxes, results.bboxes)
+    #     max_overlaps, argmax_overlaps = ious.max(0)
+    #     for idx, tar in enumerate(tar_instance):
+    #         ins = InstanceData()
+    #         matched_overlaps = max_overlaps[argmax_overlaps == idx]
+    #         matched_argmax_overlaps = argmax_overlaps[argmax_overlaps == idx]
+    #         ins = results[argmax_overlaps == idx]
+    #         logits = cls_logits[argmax_overlaps == idx]
+            
+    #         matched_argmax_overlaps = matched_argmax_overlaps[matched_overlaps > 0.5]
+    #         ins = ins[matched_overlaps > 0.5]
+    #         logits = logits[matched_overlaps > 0.5]
+    #         matched_overlaps = matched_overlaps[matched_overlaps > 0.5]
+            
+    #         matched_overlaps = matched_overlaps[ins.scores > 0.1]
+    #         logits = logits[ins.scores > 0.1]
+    #         ins = ins[ins.scores > 0.1]
+    #         attributes = matched_overlaps * ins.scores
+    #         cls_scores = F.cross_entropy(logits[:, :num_classes], \
+    #             tar.labels.repeat(logits.shape[0]), reduction = 'none')
+    #         weights = (1 - attributes) * cls_scores
+    #         select_num = (weights < weights.mean()).sum()
+    #         # select_num = weights.sum().long()
+    #         _, sorted_indexes = torch.sort(weights)
+    #         ins.weights = weights
+    #         ins.iou = matched_overlaps
+    #         ins.logits = logits
+    #         select_results.append(ins[sorted_indexes[:select_num]])
+    #     return select_results
+    
     def select_targets(self, results, tar_instance, cls_logits, num_classes):
         select_results = []
-        for tar in tar_instance:
+        ious = bbox_overlaps(tar_instance.bboxes, results.bboxes)
+        max_overlaps, argmax_overlaps = ious.max(0)
+        for idx, tar in enumerate(tar_instance):
             ins = InstanceData()
-            iou = bbox_overlaps(tar.bboxes, results.bboxes)[0]
-            index = iou > 0.5
-            ins.bboxes = results.bboxes[index]
-            ins.labels = results.labels[index]
-            ins.scores = results.scores[index]
-            ins.logits = cls_logits[index]
-            ins.iou = iou[index]
-            # cls_scores = F.cross_entropy(cls_logits[index][:, :num_classes], \
-            #     tar.labels.repeat(cls_logits[index].shape[0]), reduction = 'none')
-            weights = iou[index] * ins.scores
-            select_num = (weights > weights.mean()).sum()
+            matched_overlaps = max_overlaps[argmax_overlaps == idx]
+            matched_argmax_overlaps = argmax_overlaps[argmax_overlaps == idx]
+            ins = results[argmax_overlaps == idx]
+            logits = cls_logits[argmax_overlaps == idx]
+            
+            matched_argmax_overlaps = matched_argmax_overlaps[matched_overlaps > 0]
+            ins = ins[matched_overlaps > 0]
+            logits = logits[matched_overlaps > 0]
+            matched_overlaps = matched_overlaps[matched_overlaps > 0]
+            
+            # matched_overlaps = matched_overlaps[ins.scores > 0.1]
+            # logits = logits[ins.scores > 0.1]
+            # ins = ins[ins.scores > 0.1]
+            attributes = matched_overlaps * ins.scores
+            cls_scores = F.cross_entropy(logits[:, :num_classes], \
+                tar.labels.repeat(logits.shape[0]), reduction = 'none')
+            weights = (1 - attributes) * cls_scores
+            select_num = (weights < weights.mean()).sum()
             # select_num = weights.sum().long()
-            sorted_scores, sorted_indexes = torch.sort(weights, descending=True)
+            _, sorted_indexes = torch.sort(weights)
             ins.weights = weights
-            select_results.append(ins[sorted_indexes[:select_num]])
-        return select_results
-     
+            ins.iou = matched_overlaps
+            ins.logits = logits
+            select_results.append(ins[sorted_indexes])
+        return select_results  
     
 
 @ATTACKERS.register_module()

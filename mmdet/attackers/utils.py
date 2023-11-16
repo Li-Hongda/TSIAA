@@ -91,7 +91,7 @@ def get_target_instance(gts, dts, logits, num_classes, rank):
     labels = []
     bboxes = []
     gts = gts.to(dts.bboxes.device)
-    tar_ins = InstanceData()      
+    tar_ins = InstanceData()
     for gt in gts:
         ious = bbox_overlaps(gt.bboxes.tensor.cuda(), dts.bboxes)[0]
         matched_idx = torch.nonzero(ious > 0.5)[:, 0]
@@ -123,11 +123,37 @@ def get_target_instance(gts, dts, logits, num_classes, rank):
 
         
         
+def get_target_instance_v0(gts, dts, logits, num_classes, rank):
+    visited = [False] * len(dts)
     labels = []
-    for logit in logits:
-        logit_list = logit[:20].tolist()
-        labels.append(logit_list.index(sorted(logit_list)[rank - 1]))
-    return torch.as_tensor(labels)
+    bboxes = []
+    ori_labels = []
+    ori_bboxes = []
+    gts = gts.to(dts.bboxes.device)
+    tar_ins = InstanceData()
+    # ori_ins = InstanceData()
+    for gt in gts:
+        ious = bbox_overlaps(gt.bboxes.tensor.cuda(), dts.bboxes)[0]
+        matched_idx = torch.nonzero(ious > 0.5)[:, 0]
+        sorted_ious, sorted_index = ious[matched_idx].sort(descending=True)
+        sorted_index = matched_idx[sorted_index]
+        for i, idx in enumerate(sorted_index):
+            if sorted_ious[i] > 0.5 and not visited[idx] and dts.labels[idx] == gt.labels:
+                visited[idx] = True
+                _, sorted_indices = logits[idx][:num_classes].sort(descending=True)
+                labels.append(sorted_indices[rank-1])
+                bboxes.append(gt.bboxes.tensor[0])
+                # ori_bboxes.append(dts.bboxes[idx])
+                ori_labels.append(dts.labels[idx])
+                break
+
+    if bboxes == []:
+        return None, ori_labels
+    tar_ins.bboxes = torch.stack(bboxes)
+    tar_ins.labels = torch.stack(labels)
+    # ori_ins.bboxes = torch.stack(ori_bboxes)
+    ori_labels = torch.stack(ori_labels)
+    return tar_ins, ori_labels
  
 
 def gkern(kernlen=15, nsig=3):

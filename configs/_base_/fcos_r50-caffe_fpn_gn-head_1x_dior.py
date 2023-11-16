@@ -74,15 +74,9 @@ optim_wrapper = dict(
     paramwise_cfg=dict(bias_lr_mult=2., bias_decay_mult=0.),
     clip_grad=dict(max_norm=35, norm_type=2))
 
-# test_dataloader = dict(
-#     dataset=dict(
-#         data_prefix=dict(
-#             img='/disk2/lhd/codes/attack/work_dirs/examples/dior_bim_fasterrcnn_step10/')))
-
-
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior_tbim_fcos/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior_tabim_fcos_allbox/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 

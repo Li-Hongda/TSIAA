@@ -10,3 +10,12 @@ model = dict(bbox_head=dict(num_classes=15))
 # optimizer
 optim_wrapper = dict(
     optimizer=dict(type='SGD', lr=0.00125, momentum=0.9, weight_decay=0.0001))
+
+test_dataloader = dict(
+    dataset=dict(
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dota_tabim_retinanet/',
+        ann_file='select.json',
+        data_prefix=dict(img='images/')))
+
+test_evaluator = dict(type='ASRMetric',
+                      metric=['asr', 'dr'])
