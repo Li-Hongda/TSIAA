@@ -4,12 +4,16 @@ from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 from mmcv.cnn import Linear
 from mmengine.model import bias_init_with_prob, constant_init
+from mmengine.structures import InstanceData
 from torch import Tensor
 
 from mmdet.registry import MODELS
 from mmdet.structures import SampleList
+from mmdet.structures.bbox import bbox_cxcywh_to_xyxy, bbox_xyxy_to_cxcywh
 from mmdet.utils import InstanceList, OptInstanceList
 from ..layers import inverse_sigmoid
 from .detr_head import DETRHead
@@ -326,3 +330,111 @@ class DeformableDETRHead(DETRHead):
                                                    img_meta, rescale)
             result_list.append(results)
         return result_list
+    
+    def predict_logits(self,
+                    all_layers_cls_scores: Tensor,
+                    all_layers_bbox_preds: Tensor,
+                    batch_img_metas: List[Dict],
+                    rescale: bool = False) -> InstanceList:
+        cls_scores = all_layers_cls_scores[-1]
+        bbox_preds = all_layers_bbox_preds[-1]
+
+        for img_id in range(len(batch_img_metas)):
+            cls_score = cls_scores[img_id]
+            bbox_pred = bbox_preds[img_id]
+            img_meta = batch_img_metas[img_id]
+            results, cls_logits = self.predict_logits_single(cls_score, bbox_pred,
+                                                   img_meta, rescale)
+        return results, cls_logits
+    
+    def predict_logits_single(self,
+                            cls_score: Tensor,
+                            bbox_pred: Tensor,
+                            img_meta: dict,
+                            rescale: bool = True) -> InstanceData:
+        assert len(cls_score) == len(bbox_pred)  # num_queries
+        max_per_img = self.test_cfg.get('max_per_img', len(cls_score))
+        img_shape = img_meta['img_shape']
+        # exclude background
+        if self.loss_cls.use_sigmoid:
+            cls_score = cls_score.sigmoid()
+            scores, indexes = cls_score.view(-1).topk(max_per_img)
+            det_labels = indexes % self.num_classes
+            bbox_index = indexes // self.num_classes
+            bbox_pred = bbox_pred[bbox_index]
+            cls_logits = cls_score[bbox_index]
+        else:
+            scores, det_labels = F.softmax(cls_score, dim=-1)[..., :-1].max(-1)
+            scores, bbox_index = scores.topk(max_per_img)
+            bbox_pred = bbox_pred[bbox_index]
+            det_labels = det_labels[bbox_index]
+
+        det_bboxes = bbox_cxcywh_to_xyxy(bbox_pred)
+        det_bboxes[:, 0::2] = det_bboxes[:, 0::2] * img_shape[1]
+        det_bboxes[:, 1::2] = det_bboxes[:, 1::2] * img_shape[0]
+        det_bboxes[:, 0::2].clamp_(min=0, max=img_shape[1])
+        det_bboxes[:, 1::2].clamp_(min=0, max=img_shape[0])
+        if rescale:
+            assert img_meta.get('scale_factor') is not None
+            det_bboxes /= det_bboxes.new_tensor(
+                img_meta['scale_factor']).repeat((1, 2))
+
+        results = InstanceData()
+        results.bboxes = det_bboxes[scores>0.05]
+        results.scores = scores[scores>0.05]
+        results.labels = det_labels[scores>0.05]
+        return results, cls_logits[scores>0.05]
+    
+    def inference(self,
+                all_layers_cls_scores: Tensor,
+                all_layers_bbox_preds: Tensor,
+                batch_img_metas: List[Dict],
+                rescale: bool = False) -> InstanceList:
+        cls_scores = all_layers_cls_scores[-1]
+        bbox_preds = all_layers_bbox_preds[-1]
+
+        for img_id in range(len(batch_img_metas)):
+            cls_score = cls_scores[img_id]
+            bbox_pred = bbox_preds[img_id]
+            img_meta = batch_img_metas[img_id]
+            results, cls_logits = self.inference_single(cls_score, bbox_pred,
+                                                   img_meta, rescale)
+        return results, cls_logits
+    
+    def inference_single(self,
+                        cls_score: Tensor,
+                        bbox_pred: Tensor,
+                        img_meta: dict,
+                        rescale: bool = True) -> InstanceData:
+        assert len(cls_score) == len(bbox_pred)  # num_queries
+        max_per_img = self.test_cfg.get('max_per_img', len(cls_score))
+        img_shape = img_meta['img_shape']
+        # exclude background
+        if self.loss_cls.use_sigmoid:
+            cls_score = cls_score.sigmoid()
+            scores, indexes = cls_score.view(-1).topk(max_per_img)
+            det_labels = indexes % self.num_classes
+            bbox_index = indexes // self.num_classes
+            bbox_pred = bbox_pred[bbox_index]
+            cls_logits = cls_score[bbox_index]
+        else:
+            scores, det_labels = F.softmax(cls_score, dim=-1)[..., :-1].max(-1)
+            scores, bbox_index = scores.topk(max_per_img)
+            bbox_pred = bbox_pred[bbox_index]
+            det_labels = det_labels[bbox_index]
+
+        det_bboxes = bbox_cxcywh_to_xyxy(bbox_pred)
+        det_bboxes[:, 0::2] = det_bboxes[:, 0::2] * img_shape[1]
+        det_bboxes[:, 1::2] = det_bboxes[:, 1::2] * img_shape[0]
+        det_bboxes[:, 0::2].clamp_(min=0, max=img_shape[1])
+        det_bboxes[:, 1::2].clamp_(min=0, max=img_shape[0])
+        if rescale:
+            assert img_meta.get('scale_factor') is not None
+            det_bboxes /= det_bboxes.new_tensor(
+                img_meta['scale_factor']).repeat((1, 2))
+
+        results = InstanceData()
+        results.bboxes = det_bboxes
+        results.scores = scores
+        results.labels = det_labels
+        return results, cls_logits

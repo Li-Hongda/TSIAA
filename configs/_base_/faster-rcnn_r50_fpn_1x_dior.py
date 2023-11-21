@@ -10,7 +10,7 @@ model = dict(roi_head=dict(bbox_head=dict(num_classes=20)))
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior_tabim_fasterrcnn_allbox/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/taioubim_fasterrcnn_test/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 

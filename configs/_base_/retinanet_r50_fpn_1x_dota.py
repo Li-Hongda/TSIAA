@@ -13,8 +13,7 @@ optim_wrapper = dict(
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dota_tabim_retinanet/',
-        ann_file='select.json',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dota/tbim_retinanet_test/',        ann_file='select.json',
         data_prefix=dict(img='images/')))
 
 test_evaluator = dict(type='ASRMetric',

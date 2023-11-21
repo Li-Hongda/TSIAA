@@ -274,9 +274,11 @@ def target_loss_v2(preds, init_pred, feats=None,num_classes = 20, score_thr = 0.
     cls_loss = 0
     iou_loss = 0 
     for tar_bbox, tar_label, pred in zip(tar_bboxes, tar_labels, preds):
+        if pred.labels.numel() == 0:
+            continue
         iou_loss += len(pred.iou) - pred.iou.sum()
         # single_loss = F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]), reduction='none')
-        # cls_loss += weight_reduce_loss(single_loss, pred.weights, reduction='sum')
+        # cls_loss += weight_reduce_loss(single_loss, 1 / pred.weights, reduction='mean')
         cls_loss += F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]))
         # for logit, weight in zip(pred.logits, pred.weights):
         #     single_loss = logit[logit > logit[tar_label]].sum() - logit[tar_label]
@@ -284,6 +286,38 @@ def target_loss_v2(preds, init_pred, feats=None,num_classes = 20, score_thr = 0.
             # cls_loss += logit[logit > logit[tar_label]].sum() - logit[tar_label]
     return (cls_loss + iou_loss)
                
+
+def target_loss_v3(preds, init_pred, feats=None,num_classes = 20, score_thr = 0.3):
+    tar_bboxes = init_pred.bboxes
+    tar_labels = init_pred.labels
+    cls_loss = 0
+    iou_loss = 0 
+    loss = 0
+    for tar_bbox, tar_label, pred in zip(tar_bboxes, tar_labels, preds):
+        if pred.labels.numel() == 0:
+            continue
+        single_loss = (1 - pred.iou) + F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]), reduction='none')
+        # iou_loss += (1 - pred.iou) * pred.weights
+        # single_loss = F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]), reduction='none')
+        loss += weight_reduce_loss(single_loss, F.softmax(1 / pred.weights, dim=-1), reduction='mean')
+        # cls_loss += F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]))
+    return loss
+
+
+def target_loss_withoutiou(preds, init_pred, feats=None,num_classes = 20, score_thr = 0.3):
+    tar_bboxes = init_pred.bboxes
+    tar_labels = init_pred.labels
+    cls_loss = 0
+    iou_loss = 0 
+    loss = 0
+    for tar_bbox, tar_label, pred in zip(tar_bboxes, tar_labels, preds):
+        if pred.labels.numel() == 0:
+            continue
+        single_loss = F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]), reduction='none')
+        # iou_loss += (1 - pred.iou) * pred.weights
+        # single_loss = F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]), reduction='none')
+        loss += weight_reduce_loss(single_loss, F.softmax(1 / pred.weights, dim=-1), reduction='mean')
+    return loss
 
 def feature_loss(feat, init_dets, target_label, model, dataset):
     feature_bboxes = init_dets.bboxes // 4

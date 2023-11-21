@@ -167,7 +167,7 @@ auto_scale_lr = dict(base_batch_size=64)
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior_tabim_yolox_test/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/tabim_yolox_test/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 

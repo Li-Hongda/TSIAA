@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/dior_detection.py', '../_base_/default_runtime.py'
+    'datasets/dior_detection.py', 'default_runtime.py'
 ]
 model = dict(
     type='DeformableDETR',
@@ -154,3 +154,12 @@ param_scheduler = [
 # USER SHOULD NOT CHANGE ITS VALUES.
 # base_batch_size = (16 GPUs) x (2 samples per GPU)
 auto_scale_lr = dict(base_batch_size=32)
+
+test_dataloader = dict(
+    dataset=dict(
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/taioubim_deformabledetr_test/',
+        ann_file='select.json',
+        data_prefix=dict(img='images/')))
+
+test_evaluator = dict(type='ASRMetric',
+                      metric=['asr', 'dr'])

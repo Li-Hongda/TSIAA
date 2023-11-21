@@ -78,6 +78,6 @@ runner_type = "AttackRunner"
 custom_hooks = [
     dict(
         type='RecordHook',
-        output_dir = 'work_dirs/examples',
+        output_dir = 'work_dirs/examples/dota',
         priority=49)
 ]
