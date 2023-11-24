@@ -328,6 +328,7 @@ class DeformableDETRHead(DETRHead):
             img_meta = batch_img_metas[img_id]
             results = self._predict_by_feat_single(cls_score, bbox_pred,
                                                    img_meta, rescale)
+            results = results[results.scores > 0.05]
             result_list.append(results)
         return result_list
     

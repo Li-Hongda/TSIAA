@@ -81,7 +81,7 @@ model = dict(
 # ]
 # train_dataloader = dict(dataset=dict(pipeline=train_pipeline))
 # val_dataloader = dict(dataset=dict(pipeline=test_pipeline))
-# test_dataloader = val_dataloader
+# test_dataloader = val_dataloadern
 
 # optimizer
 optim_wrapper = dict(
@@ -105,7 +105,7 @@ train_cfg = dict(max_epochs=max_epochs)
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/tabim_vfnet_test/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/tog_vfnet/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 

@@ -752,9 +752,9 @@ class TOODHead(ATSSHead):
             batch_gt_instances_ignore = [None] * num_imgs
         # anchor_list: list(b * [-1, 4])
 
-        # get epoch information from message hub
-        message_hub = MessageHub.get_current_instance()
-        self.epoch = message_hub.get_info('epoch')
+        # # get epoch information from message hub
+        # message_hub = MessageHub.get_current_instance()
+        # self.epoch = message_hub.get_info('epoch')
 
         if self.epoch < self.initial_epoch:
             (all_anchors, all_labels, all_label_weights, all_bbox_targets,

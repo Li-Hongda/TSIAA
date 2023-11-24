@@ -2,9 +2,9 @@ from abc import abstractmethod
 import numpy as np
 import copy
 import cv2
+from collections import OrderedDict
 import torch
-import mmcv
-import mmengine
+from mmengine.utils import is_list_of
 from mmdet.registry import ATTACKERS
 import torch.nn as nn
 from .utils import *
@@ -781,8 +781,7 @@ class TABIMAttacker(TBIMAttacker):
             if results.bboxes.shape[0] == 0:
                 break
             select_results = self.select_targets(results, tar_instances, cls_logits, num_classes)
-            # loss = target_loss_v1(results[0], init_results[0], cls_logits, features, target_feature, num_classes)
-            loss = target_loss_v3(select_results, tar_instances, features, num_classes)
+            loss = target_loss_v3(select_results, tar_instances)
             if loss == 0.0:
                 print("attack failed")
                 break
@@ -805,28 +804,7 @@ class TABIMAttacker(TBIMAttacker):
             "data_samples":data['data_samples']
         }
         return adv_data
-    
-    # def select_targets(self, results, tar_instance, cls_logits, num_classes):
-    #     select_results = []
-    #     for tar in tar_instance:
-    #         ins = InstanceData()
-    #         iou = bbox_overlaps(tar.bboxes, results.bboxes)[0]
-    #         index = iou > 0.5
-    #         ins.bboxes = results.bboxes[index]
-    #         ins.labels = results.labels[index]
-    #         ins.scores = results.scores[index]
-    #         ins.logits = cls_logits[index]
-    #         ins.iou = iou[index]
-    #         # cls_scores = F.cross_entropy(cls_logits[index][:, :num_classes], \
-    #         #     tar.labels.repeat(cls_logits[index].shape[0]), reduction = 'none')
-    #         weights = iou[index] * ins.scores
-    #         # select_num = (weights > weights.mean()).sum()
-    #         select_num = weights.sum().long()
-    #         sorted_scores, sorted_indexes = torch.sort(weights, descending=True)
-    #         ins.weights = weights
-    #         select_results.append(ins[sorted_indexes[:select_num]])
-    #     return select_results
-    
+
     
     def select_targets(self, results, tar_instance, cls_logits, num_classes):
         select_results = []
@@ -839,14 +817,14 @@ class TABIMAttacker(TBIMAttacker):
             ins = results[argmax_overlaps == idx]
             logits = cls_logits[argmax_overlaps == idx]
             
-            matched_argmax_overlaps = matched_argmax_overlaps[matched_overlaps > 0.5]
-            ins = ins[matched_overlaps > 0.5]
-            logits = logits[matched_overlaps > 0.5]
-            matched_overlaps = matched_overlaps[matched_overlaps > 0.5]
+            # matched_argmax_overlaps = matched_argmax_overlaps[matched_overlaps > 0.5]
+            # ins = ins[matched_overlaps > 0.5]
+            # logits = logits[matched_overlaps > 0.5]
+            # matched_overlaps = matched_overlaps[matched_overlaps > 0.5]
             
-            matched_overlaps = matched_overlaps[ins.scores > 0.1]
-            logits = logits[ins.scores > 0.1]
-            ins = ins[ins.scores > 0.1]
+            # matched_overlaps = matched_overlaps[ins.scores > 0.1]
+            # logits = logits[ins.scores > 0.1]
+            # ins = ins[ins.scores > 0.1]
             attributes = matched_overlaps * ins.scores
             cls_scores = F.cross_entropy(logits[:, :num_classes], \
                 tar.labels.repeat(logits.shape[0]), reduction = 'none')
@@ -862,38 +840,92 @@ class TABIMAttacker(TBIMAttacker):
             select_results.append(ins[sorted_indexes[:select_num]])
         return select_results
     
-    # def select_targets(self, results, tar_instance, cls_logits, num_classes):
-    #     select_results = []
-    #     ious = bbox_overlaps(tar_instance.bboxes, results.bboxes)
-    #     max_overlaps, argmax_overlaps = ious.max(0)
-    #     for idx, tar in enumerate(tar_instance):
-    #         ins = InstanceData()
-    #         matched_overlaps = max_overlaps[argmax_overlaps == idx]
-    #         matched_argmax_overlaps = argmax_overlaps[argmax_overlaps == idx]
-    #         ins = results[argmax_overlaps == idx]
-    #         logits = cls_logits[argmax_overlaps == idx]
+
+@ATTACKERS.register_module()
+class TOGAttacker(TBIMAttacker):
+    def attack(self, model, data, dataset = None):
+        ori_images = data['inputs'][0].cuda()
+        model = self.prepare_model(model)
+        delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+        delta.requires_grad = True
+        init_results, cls_logits, num_classes = self.get_init_results(data, model)
+
+        tar_instances = get_target_instance(data['data_samples'][0].gt_instances, init_results, cls_logits, num_classes, rank = 5)
+        if tar_instances == None:
+            self.is_attack = False
+            if not hasattr(self, 'count'):
+                setattr(self, 'count', 0)
+            self.count += 1
+            print(f"{data['data_samples'][0].img_path[-9:]} has no valid detections!")
+            return data
+        else:
+            self.is_attack = True
+        data['data_samples'][0].gt_instances = tar_instances
+        init_results.labels.data = tar_instances.labels
+        adv_images = ori_images.clone()
+        grad_pre = 0
+        for ii in range(self.steps):
+            delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+            delta.requires_grad = True
+            adv_data = {
+                "inputs":[adv_images + delta],
+                "data_samples":data['data_samples']
+            }
+            adv_data = model.data_preprocessor(adv_data, False)
+            outs = model._run_forward(adv_data, mode='tensor')
+            # features = model._run_forward(adv_data, mode='feature')
+            features = None
+            if hasattr(model, 'roi_head'):
+                outs = [[out] for out in outs]
+                results, cls_logits = model.roi_head.bbox_head.inference(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], 
+                            rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
+            else:
+                results, cls_logits = model.bbox_head.inference(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
+            if results.bboxes.shape[0] == 0:
+                break
+            select_results = self.select_targets(results, tar_instances, cls_logits, num_classes)
+            # loss = target_loss_v1(results[0], init_results[0], cls_logits, features, target_feature, num_classes)
+            loss = target_loss_v2(select_results, tar_instances, features, num_classes)
+            if loss == 0.0:
+                print("attack failed")
+                break
+            loss.backward()
+            noise = delta.grad.data.detach_().clone()
+            noise, grad_pre = BI(noise, grad_pre)
+            delta.grad.zero_()
+            delta.data = delta.data - self.step_size * torch.sign(noise)
+            delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
+            delta.data = delta.data.clamp(-self.eps, self.eps)
             
-    #         matched_argmax_overlaps = matched_argmax_overlaps[matched_overlaps > 0]
-    #         ins = ins[matched_overlaps > 0]
-    #         logits = logits[matched_overlaps > 0]
-    #         matched_overlaps = matched_overlaps[matched_overlaps > 0]
-            
-    #         matched_overlaps = matched_overlaps[ins.scores > 0.1]
-    #         logits = logits[ins.scores > 0.1]
-    #         ins = ins[ins.scores > 0.1]
-    #         attributes = matched_overlaps * ins.scores
-    #         cls_scores = F.cross_entropy(logits[:, :num_classes], \
-    #             tar.labels.repeat(logits.shape[0]), reduction = 'none')
-    #         weights = (1 - attributes) * cls_scores
-    #         select_num = (weights < weights.mean()).sum()
-    #         # select_num = weights.sum().long()
-    #         _, sorted_indexes = torch.sort(weights)
-    #         ins.weights = weights
-    #         ins.iou = matched_overlaps
-    #         ins.logits = logits
-    #         select_results.append(ins[sorted_indexes])
-    #     return select_results 
+            adv_images = ori_images.clone() + delta
+        adv_data = {
+            "inputs":[adv_images],
+            "data_samples":data['data_samples']
+        }
+        return adv_data
     
+    def select_targets(self, results, tar_instance, cls_logits, num_classes):
+        select_results = []
+        ious = bbox_overlaps(tar_instance.bboxes, results.bboxes)
+        max_overlaps, argmax_overlaps = ious.max(0)
+        for idx, tar in enumerate(tar_instance):
+            ins = InstanceData()
+            matched_overlaps = max_overlaps[argmax_overlaps == idx]
+            matched_argmax_overlaps = argmax_overlaps[argmax_overlaps == idx]
+            ins = results[argmax_overlaps == idx]
+            logits = cls_logits[argmax_overlaps == idx]
+            
+            matched_argmax_overlaps = matched_argmax_overlaps[matched_overlaps > 0]
+            ins = ins[matched_overlaps > 0]
+            logits = logits[matched_overlaps > 0]
+            matched_overlaps = matched_overlaps[matched_overlaps > 0]
+            ins.iou = matched_overlaps
+            ins.logits = logits
+            select_results.append(ins)
+        return select_results 
+
 
 @ATTACKERS.register_module()
 class TAIOUBIMAttacker(TBIMAttacker):
@@ -944,8 +976,8 @@ class TAIOUBIMAttacker(TBIMAttacker):
             if results.bboxes.shape[0] == 0:
                 break
             select_results = self.select_targets(results, tar_instances, cls_logits, num_classes)
-            # loss = target_loss_v1(results[0], init_results[0], cls_logits, features, target_feature, num_classes)
-            loss = target_loss_withoutiou(select_results, tar_instances, features, num_classes)
+            loss = target_loss_v4(select_results, tar_instances, features, num_classes)
+            # loss = target_loss_withoutiou(select_results, tar_instances, features, num_classes)
             if loss == 0.0:
                 print("attack failed")
                 break            
@@ -1002,6 +1034,116 @@ class TAIOUBIMAttacker(TBIMAttacker):
             select_results.append(ins[sorted_indexes[:select_num]])
         return select_results
     
+
+
+@ATTACKERS.register_module()
+class TCBIMAttacker(TBIMAttacker):
+    
+    def attack(self, model, data, dataset = None):
+        # if data['data_samples'][0].img_path == '/disk2/lhd/datasets/attack/dota/images/P1128__1__0___480.png':
+        # if data['data_samples'][0].img_path == '/disk2/lhd/datasets/attack/dior/images/16914.png':
+        #     print()
+        ori_images = data['inputs'][0].cuda()
+        model = self.prepare_model(model)
+        delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+        delta.requires_grad = True
+        init_results, cls_logits, num_classes = self.get_init_results(data, model)
+
+        tar_instances = get_target_instance(data['data_samples'][0].gt_instances, init_results, cls_logits, num_classes, rank = 5)
+        if tar_instances == None:
+            self.is_attack = False
+            if not hasattr(self, 'count'):
+                setattr(self, 'count', 0)
+            self.count += 1
+            print(f"{data['data_samples'][0].img_path[-9:]} has no valid detections!")
+            return data
+        else:
+            self.is_attack = True
+        data['data_samples'][0].gt_instances = tar_instances
+        init_results.labels.data = tar_instances.labels
+        adv_images = ori_images.clone()
+        grad_pre = 0
+        for ii in range(self.steps):
+            delta = torch.zeros(data['inputs'][0].shape, dtype = torch.float32, device = torch.device('cuda'))
+            delta.requires_grad = True
+            adv_data = {
+                "inputs":[adv_images + delta],
+                "data_samples":data['data_samples']
+            }
+            adv_data = model.data_preprocessor(adv_data, False)
+            outs = model._run_forward(adv_data, mode='tensor')
+            # features = model._run_forward(adv_data, mode='feature')
+            features = None
+            if hasattr(model, 'roi_head'):
+                outs = [[out] for out in outs]
+                results, cls_logits = model.roi_head.bbox_head.inference(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], 
+                            rcnn_test_cfg = model.roi_head.test_cfg, rescale=True)
+            else:
+                results, cls_logits = model.bbox_head.inference(*outs, 
+                            batch_img_metas=[data['data_samples'][0].metainfo], rescale=True)
+            if results.bboxes.shape[0] == 0:
+                break
+            select_results = self.select_targets(results, tar_instances, cls_logits, num_classes)
+            # loss = target_loss_v1(results[0], init_results[0], cls_logits, features, target_feature, num_classes)
+            loss = target_loss_v4(select_results, tar_instances, features, num_classes)
+            if loss == 0.0:
+                print("attack failed")
+                break
+            loss.backward()
+            noise = delta.grad.data.detach_().clone()
+            noise, grad_pre = BI(noise, grad_pre)
+            delta.grad.zero_()
+            delta.data = delta.data - self.step_size * torch.sign(noise)
+            delta.data = ((adv_images + delta.data).clamp(0, 255)) - ori_images
+            delta.data = delta.data.clamp(-self.eps, self.eps)
+            
+            adv_images = ori_images.clone() + delta
+        # a = (adv_images - ori_images).abs().detach().cpu().numpy().sum(0)
+        # bs = tar_instances.bboxes.cpu().numpy().astype(np.int64)
+        # for b in bs:
+        #     cv2.rectangle(a, (b[0], b[1]), (b[2],b[3]), color=(255))
+        # cv2.imwrite("work_dirs/debug.png", a)
+        adv_data = {
+            "inputs":[adv_images],
+            "data_samples":data['data_samples']
+        }
+        return adv_data
+
+    
+    def select_targets(self, results, tar_instance, cls_logits, num_classes):
+        select_results = []
+        ious = bbox_overlaps(tar_instance.bboxes, results.bboxes)
+        max_overlaps, argmax_overlaps = ious.max(0)
+        for idx, tar in enumerate(tar_instance):
+            ins = InstanceData()
+            matched_overlaps = max_overlaps[argmax_overlaps == idx]
+            matched_argmax_overlaps = argmax_overlaps[argmax_overlaps == idx]
+            ins = results[argmax_overlaps == idx]
+            logits = cls_logits[argmax_overlaps == idx]
+            
+            matched_argmax_overlaps = matched_argmax_overlaps[matched_overlaps > 0.5]
+            ins = ins[matched_overlaps > 0.5]
+            logits = logits[matched_overlaps > 0.5]
+            matched_overlaps = matched_overlaps[matched_overlaps > 0.5]
+            
+            matched_overlaps = matched_overlaps[ins.scores > 0.1]
+            logits = logits[ins.scores > 0.1]
+            ins = ins[ins.scores > 0.1]
+            attributes = matched_overlaps * ins.scores
+            cls_scores = F.cross_entropy(logits[:, :num_classes], \
+                tar.labels.repeat(logits.shape[0]), reduction = 'none')
+            weights = (1 - attributes) * cls_scores
+            select_num = (weights < weights.mean()).sum()
+            # select_num = weights.sum().long()
+            _, sorted_indexes = torch.sort(weights)
+            ins.weights = weights
+            ins.iou = matched_overlaps
+            ins.logits = logits
+            ins.attributes = attributes
+            ins.cost = cls_scores
+            select_results.append(ins[sorted_indexes[:select_num]])
+        return select_results
 
 
 @ATTACKERS.register_module()

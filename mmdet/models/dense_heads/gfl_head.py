@@ -488,6 +488,124 @@ class GFLHead(AnchorHead):
             rescale=rescale,
             with_nms=with_nms,
             img_meta=img_meta)
+        
+    def inference_single(self,
+                        cls_score_list: List[Tensor],
+                        bbox_pred_list: List[Tensor],
+                        score_factor_list: List[Tensor],
+                        mlvl_priors: List[Tensor],
+                        img_meta: dict,
+                        cfg: ConfigDict,
+                        rescale: bool = False,
+                        with_nms: bool = True) -> InstanceData:
+
+        cfg = self.test_cfg if cfg is None else cfg
+        img_shape = img_meta['img_shape']
+        nms_pre = cfg.get('nms_pre', -1)
+
+        mlvl_bboxes = []
+        mlvl_scores = []
+        mlvl_labels = []
+        mlvl_logits = []
+        for level_idx, (cls_score, bbox_pred, stride, priors) in enumerate(
+                zip(cls_score_list, bbox_pred_list,
+                    self.prior_generator.strides, mlvl_priors)):
+            assert cls_score.size()[-2:] == bbox_pred.size()[-2:]
+            assert stride[0] == stride[1]
+
+            bbox_pred = bbox_pred.permute(1, 2, 0)
+            bbox_pred = self.integral(bbox_pred) * stride[0]
+
+            cls_score = cls_score.permute(1, 2, 0).reshape(
+                -1, self.cls_out_channels).sigmoid()
+
+            results = filter_scores_and_topk(
+                cls_score, cfg.score_thr, nms_pre,
+                dict(bbox_pred=bbox_pred, priors=priors))
+            scores, labels, keep_idxs, filtered_results = results
+
+            bbox_pred = filtered_results['bbox_pred']
+            priors = filtered_results['priors']
+
+            bboxes = self.bbox_coder.decode(
+                self.anchor_center(priors), bbox_pred, max_shape=img_shape)
+            mlvl_bboxes.append(bboxes)
+            mlvl_scores.append(scores)
+            mlvl_labels.append(labels)
+            mlvl_logits.append(cls_score[keep_idxs])
+
+        results = InstanceData()
+        results.bboxes = torch.cat(mlvl_bboxes)
+        results.scores = torch.cat(mlvl_scores)
+        results.labels = torch.cat(mlvl_labels)
+        cls_logits = torch.cat(mlvl_logits)
+        results, cls_logits = self.select_bboxes(
+            results=results,
+            logits=cls_logits, 
+            cfg=cfg,
+            rescale=rescale,
+            img_meta=img_meta)        
+        return results, cls_logits
+        
+    def predict_logits_single(self,
+                            cls_score_list: List[Tensor],
+                            bbox_pred_list: List[Tensor],
+                            score_factor_list: List[Tensor],
+                            mlvl_priors: List[Tensor],
+                            img_meta: dict,
+                            cfg: ConfigDict,
+                            rescale: bool = False,
+                            with_nms: bool = True) -> InstanceData:
+
+        cfg = self.test_cfg if cfg is None else cfg
+        img_shape = img_meta['img_shape']
+        nms_pre = cfg.get('nms_pre', -1)
+
+        mlvl_bboxes = []
+        mlvl_scores = []
+        mlvl_labels = []
+        mlvl_logits = []
+        for level_idx, (cls_score, bbox_pred, stride, priors) in enumerate(
+                zip(cls_score_list, bbox_pred_list,
+                    self.prior_generator.strides, mlvl_priors)):
+            assert cls_score.size()[-2:] == bbox_pred.size()[-2:]
+            assert stride[0] == stride[1]
+
+            bbox_pred = bbox_pred.permute(1, 2, 0)
+            bbox_pred = self.integral(bbox_pred) * stride[0]
+
+            cls_score = cls_score.permute(1, 2, 0).reshape(
+                -1, self.cls_out_channels).sigmoid()
+
+            results = filter_scores_and_topk(
+                cls_score, cfg.score_thr, nms_pre,
+                dict(bbox_pred=bbox_pred, priors=priors))
+            scores, labels, keep_idxs, filtered_results = results
+
+            bbox_pred = filtered_results['bbox_pred']
+            priors = filtered_results['priors']
+
+            bboxes = self.bbox_coder.decode(
+                self.anchor_center(priors), bbox_pred, max_shape=img_shape)
+            mlvl_logits.append(cls_score[keep_idxs])
+            mlvl_bboxes.append(bboxes)
+            mlvl_scores.append(scores)
+            mlvl_labels.append(labels)
+
+        results = InstanceData()
+        results.bboxes = torch.cat(mlvl_bboxes)
+        results.scores = torch.cat(mlvl_scores)
+        results.labels = torch.cat(mlvl_labels)
+        cls_logits = torch.cat(mlvl_logits)
+        
+        results, cls_logits = self.post_process_logits(
+            results=results,
+            logits=cls_logits,
+            cfg=cfg,
+            rescale=rescale,
+            with_nms=with_nms,
+            img_meta=img_meta)
+        return results, cls_logits
 
     def get_targets(self,
                     anchor_list: List[Tensor],
