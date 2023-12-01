@@ -105,7 +105,7 @@ train_cfg = dict(max_epochs=max_epochs)
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dota/tbim_vfnet_test/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dota/tabim_dota/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 

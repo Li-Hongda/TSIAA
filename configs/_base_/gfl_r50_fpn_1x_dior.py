@@ -67,7 +67,7 @@ optim_wrapper = dict(
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/tabim_gfl_abalation_iou/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/tabim_gfl/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 

@@ -313,11 +313,11 @@ def target_loss_v4(preds, init_pred, feats=None,num_classes = 20, score_thr = 0.
         if pred.labels.numel() == 0:
             continue
         label = F.one_hot(tar_label.repeat(pred.logits.shape[0]), num_classes).float()
-        cls_loss = F.binary_cross_entropy(pred.logits.sigmoid(), label, reduction='none').sum(1)
+        cls_loss = F.binary_cross_entropy(pred.logits.sigmoid()[:,:num_classes], label, reduction='none').sum(1)
         single_loss = (1 - pred.iou) + cls_loss
         # iou_loss += (1 - pred.iou) * pred.weights
         # single_loss = F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]), reduction='none')
-        loss += weight_reduce_loss(single_loss, F.softmax(1 / pred.weights, dim=-1), reduction='mean')
+        loss += weight_reduce_loss(single_loss, reduction='mean')
         # cls_loss += F.cross_entropy(pred.logits, tar_label.repeat(pred.logits.shape[0]))
     return loss
 

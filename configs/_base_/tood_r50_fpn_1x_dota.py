@@ -81,7 +81,7 @@ optim_wrapper = dict(
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dota/tbim_tood_test/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dota/tabim_tood/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 

@@ -478,6 +478,7 @@ def eval_asr(results, iou_thr=0.5):
     fp = 0
     tar = 0
     total = 0
+    total_pred = 0
     from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
     for result in track_iter_progress(results):
         annotation, det_result = result
@@ -488,27 +489,23 @@ def eval_asr(results, iou_thr=0.5):
         pred_labels = det_result['labels'][pred_scores > 0.5]
         total += gt_bboxes.shape[0]
         visited = [False] * gt_bboxes.shape[0]
-        # TODO:一个预测框对应多个gt时如何计算？
         for pred_bbox, pred_label in zip(pred_bboxes, pred_labels):
             iou = bbox_overlaps(pred_bbox.unsqueeze(0), gt_bboxes)
             max_overlap, argmax_overlaps = iou.max(1)
             if max_overlap > iou_thr:
                 # match_bbox = gt_bboxes[a rgmax_overlaps]
-                sorted_idx = torch.argsort(iou[0],descending=True)[:len(iou[iou>0])]
+                sorted_idx = torch.argsort(iou[0],descending=True)[:len(iou>iou_thr)]
                 for idx in sorted_idx:
                     if pred_label == gt_labels[idx] and visited[idx] == False:
                         tar += 1
                         visited[idx] = True
-                        break
-                # match_label = gt_labels[argmax_overlaps]
-                # # total += 1
-                # if pred_label == match_label and visited[argmax_overlaps] == False:
-                #     tar += 1
-                # visited[argmax_overlaps] = True
-            else:
-                fp += 1         
+                    elif pred_label == gt_labels[idx] and visited[idx] == True:
+                        continue
+                    elif pred_label != gt_labels[idx]:
+                        fp += 1
+                total_pred += len(sorted_idx)         
     asr = tar / total * 100
-    fr = fp / total * 100
+    fr = fp / total_pred * 100
     return asr, fr
 
 

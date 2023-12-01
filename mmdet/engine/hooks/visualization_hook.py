@@ -49,7 +49,7 @@ class DetVisualizationHook(Hook):
     def __init__(self,
                  draw: bool = False,
                  interval: int = 50,
-                 score_thr: float = 0.3,
+                 score_thr: float = 0.5,
                  show: bool = False,
                  wait_time: float = 0.,
                  test_out_dir: Optional[str] = None,

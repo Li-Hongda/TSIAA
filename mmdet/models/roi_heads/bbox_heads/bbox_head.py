@@ -10,7 +10,6 @@ from mmengine.structures import InstanceData
 from torch import Tensor
 from torch.nn.modules.utils import _pair
 
-from mmdet.attackers.utils import get_bbox_and_score
 from mmdet.models.layers import multiclass_nms
 from mmdet.models.losses import accuracy
 from mmdet.models.task_modules.samplers import SamplingResult
@@ -497,7 +496,7 @@ class BBoxHead(BaseModule):
         box_dim = bboxes.size(-1)
         bboxes = bboxes.view(num_rois, -1)
 
-        det_bboxes, det_scores, det_labels, cls_logits = self.select_bboxes(bboxes, scores, rcnn_test_cfg.score_thr, cls_score)
+        det_bboxes, det_scores, det_labels, cls_logits = self.select_bboxes(bboxes, scores, rcnn_test_cfg.score_thr, cls_score, box_dim)
         results.bboxes = det_bboxes
         results.scores = det_scores
         results.labels = det_labels
@@ -646,21 +645,20 @@ class BBoxHead(BaseModule):
                 rcnn_test_cfg.max_per_img,
                 box_dim=box_dim,
                 return_inds=True)
-            cls_logits = get_bbox_and_score(inds, num_classes, bboxes, cls_score)
-            # cls_logits = get_bbox_and_score(inds, num_classes, bboxes, scores)
+            cls_logits = cls_score[inds // self.num_classes]
             results.bboxes = det_bboxes[:, :-1]
             results.scores = det_bboxes[:, -1]
             results.labels = det_labels
         return results, cls_logits
 
 
-    def select_bboxes(self, bboxes, scores, score_thr, cls_scores, score_factors=None):
+    def select_bboxes(self, bboxes, scores, score_thr, cls_scores, bbox_dim, score_factors=None):
         num_classes = scores.size(1) - 1
         scores = scores[:, :-1]
         labels = torch.arange(num_classes, dtype=torch.long, device=scores.device)
         labels = labels.view(1, -1).expand_as(scores)
 
-        bboxes = bboxes.reshape(-1, 4)
+        bboxes = bboxes.reshape(-1, bbox_dim)
         scores = scores.reshape(-1)
         labels = labels.reshape(-1)
         valid_mask = scores > score_thr

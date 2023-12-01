@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import scipy.stats as st
-import copy
+import random
 from mmengine.structures.instance_data import InstanceData
 from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
 
@@ -92,6 +92,7 @@ def get_target_instance(gts, dts, logits, num_classes, rank):
     bboxes = []
     gts = gts.to(dts.bboxes.device)
     tar_ins = InstanceData()
+    possible_ranks = [i for i in range(num_classes)]
     for gt in gts:
         ious = bbox_overlaps(gt.bboxes.tensor.cuda(), dts.bboxes)[0]
         matched_idx = torch.nonzero(ious > 0.5)[:, 0]
@@ -101,6 +102,12 @@ def get_target_instance(gts, dts, logits, num_classes, rank):
             if sorted_ious[i] > 0.5 and not visited[idx] and dts.labels[idx] == gt.labels:
                 visited[idx] = True
                 sorted_logits, sorted_indices = logits[idx][:num_classes].sort(descending=True)
+                if rank == 'random':
+                    rank = random.choice(possible_ranks)
+                    while rank == dts.labels[idx]:
+                        rank = random.choice(possible_ranks)
+                elif rank == 'worst':
+                    rank = num_classes - 1
                 labels.append(sorted_indices[rank-1])
                 # logit_list = logits[idx][:num_classes].tolist()
                 # labels.append(torch.tensor([logit_list.index(sorted(logit_list)[num_classes - rank])]))
