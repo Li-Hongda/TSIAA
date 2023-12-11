@@ -494,7 +494,7 @@ def eval_asr(results, iou_thr=0.5):
             max_overlap, argmax_overlaps = iou.max(1)
             if max_overlap > iou_thr:
                 # match_bbox = gt_bboxes[a rgmax_overlaps]
-                sorted_idx = torch.argsort(iou[0],descending=True)[:len(iou>iou_thr)]
+                sorted_idx = torch.argsort(iou[0],descending=True)[:len(iou[iou>iou_thr])]
                 for idx in sorted_idx:
                     if pred_label == gt_labels[idx] and visited[idx] == False:
                         tar += 1
@@ -504,6 +504,39 @@ def eval_asr(results, iou_thr=0.5):
                     elif pred_label != gt_labels[idx]:
                         fp += 1
                 total_pred += len(sorted_idx)         
+    asr = tar / total * 100
+    fr = fp / total_pred * 100
+    return asr, fr
+
+def eval_asr_all(results):
+    fp = np.zeros(50)
+    tar = np.zeros(50)
+    total = 0
+    total_pred = np.zeros(50)
+    iou_thrs = np.arange(0.5, 1, 0.01)
+    from mmdet.structures.bbox.bbox_overlaps import bbox_overlaps
+    for result in track_iter_progress(results):
+        annotation, det_result = result
+        gt_bboxes = annotation['bboxes']
+        gt_labels = annotation['labels']
+        pred_scores = det_result['scores']
+        pred_bboxes = det_result['bboxes'][pred_scores > 0.5]
+        pred_labels = det_result['labels'][pred_scores > 0.5]
+        total += gt_bboxes.shape[0]
+        visited = [[False] * gt_bboxes.shape[0] for _ in range(50)]
+        for pred_bbox, pred_label in zip(pred_bboxes, pred_labels):
+            iou = bbox_overlaps(pred_bbox.unsqueeze(0), gt_bboxes)
+            for iou_idx, iou_thr in enumerate(iou_thrs):
+                sorted_idx = torch.argsort(iou[0],descending=True)[:len(iou[iou>iou_thr])]
+                for idx in sorted_idx:
+                    if pred_label == gt_labels[idx] and visited[iou_idx][idx] == False:
+                        tar[iou_idx] += 1
+                        visited[iou_idx][idx] = True
+                    elif pred_label == gt_labels[idx] and visited[iou_idx][idx] == True:
+                        continue
+                    elif pred_label != gt_labels[idx]:
+                        fp[iou_idx] += 1
+                total_pred[iou_idx] += len(sorted_idx)
     asr = tar / total * 100
     fr = fp / total_pred * 100
     return asr, fr
@@ -583,22 +616,31 @@ def eval_asr_v1(results, iou_thr=0):
 
 
 def print_summary(asr,
-                  dr, 
                   fp,
                   logger=None):
 
     if logger == 'silent':
         return
 
-    header = ['Attack Success Rate', 'Disappear Rate', 'FalsePositive Rate']
+    header = ['Attack Success Rate', 'FalsePositive Rate']
 
     table_data = [header]
 
     row_data = [
-        f'{asr:.3f}', f'{dr:.3f}', f'{fp:.3f}'
+        f'{asr:.3f}', f'{fp:.3f}'
     ]
     table_data.append(row_data)
     table = AsciiTable(table_data)
     table.inner_footing_row_border = True
     print_log('\n' + table.table, logger=logger)
 
+def save_summary(asr, fp, logger=None):
+    with open("work_dirs/figures/tog_atss_dior_asr.txt", 'w') as f:
+        for a in asr.tolist():
+            f.writelines(str(a)+'\n')
+    # with open("work_dirs/figures/tog_fasterrcnn_dior_fr.txt", 'w') as f:
+    #     for b in fp.tolist():
+    #         f.writelines(str(b)+'\n')
+        # f.writelines(asr.tolist())
+        # f.writelines(fp)
+    

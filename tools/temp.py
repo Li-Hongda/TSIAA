@@ -1,5 +1,6 @@
 import cv2
 import os
+import tqdm
 
 # classes = ['airplane', 'airport', 'baseballfield', 'basketballcourt', 'bridge', 'chimney', 'dam', 
 #         'Expressway-Service-area', 'Expressway-toll-station', 'golffield', 'groundtrackfield','harbor', 
@@ -29,30 +30,13 @@ palette = [(220, 20, 60), (119, 11, 32), (0, 0, 142), (0, 0, 230),
         (191, 162, 208)]
 
 
-image_path = 'work_dirs/vis'
-# image_path = '/disk2/lhd/datasets/attack/dota/images'
-# label_path = '/disk2/lhd/datasets/attack/dota/labelTxt'
-# name = 'P1373__1__1200___3200'
-# img = cv2.imread(os.path.join(image_path, name+'.png'))
-# with open(os.path.join(label_path, name+'.txt'), 'r') as f:
-#     lines = f.readlines()
-#     for line in lines:
-#         splitline = line.strip().split(' ')
-#         bbox = list(map(int, list(map(float, splitline[:8]))))
-#         label = splitline[8]
-#         wh, base = cv2.getTextSize(label, cv2.FONT_HERSHEY_COMPLEX, fontScale=0.5,thickness=2)
-#         cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[4], bbox[5]), color = palette[classes.index(label)], thickness=2)
-#         cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[0]+wh[0], bbox[1]+wh[1]), \
-#                         thickness=-1, color=(0,0,0))
-#         cv2.putText(img, label,(bbox[0], bbox[1]+base), \
-#                         fontFace=cv2.FONT_HERSHEY_COMPLEX, fontScale=0.4,thickness=1, color=(255,255,255))
-#     cv2.imwrite('work_dirs/vis_new/'+name+'_gt.png', img)
+image_path = 'work_dirs/vis_dior'
 images = os.listdir(image_path)
 # labels = os.listdir(label_path)
-for image in images:
+for image in tqdm.tqdm(images):
     img = cv2.imread(os.path.join(image_path, image))
-    # img1 = img[:, :800]
-    img2 = img[:, 800:]
-    # cv2.imwrite(os.path.join('work_dirs/vis_new', image[:-4] + '_gt.png'), img1)
-    cv2.imwrite(os.path.join('work_dirs/vis_new', image[:-4] + '_att.png'), img2)
+    img1 = img[:, 800:]
+    # img2 = img[:, 800:]
+    cv2.imwrite(os.path.join('work_dirs/vis_dior', image[:-4] + '_bim.png'), img1)
+    # cv2.imwrite(os.path.join('work_dirs/vis_new', image[:-4] + '_att.png'), img2)
 print()

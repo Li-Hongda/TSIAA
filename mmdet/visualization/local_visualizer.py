@@ -141,24 +141,24 @@ class DetLocalVisualizer(Visualizer):
                 bboxes[:, 2] - bboxes[:, 0])
             scales = _get_adaptive_scales(areas)
 
-            for i, (pos, label) in enumerate(zip(positions, labels)):
-                label_text = classes[
-                    label] if classes is not None else f'class {label}'
-                if 'scores' in instances:
-                    score = round(float(instances.scores[i]) * 100, 1)
-                    label_text += f': {score}'
+            # for i, (pos, label) in enumerate(zip(positions, labels)):
+            #     label_text = classes[
+            #         label] if classes is not None else f'class {label}'
+            #     if 'scores' in instances:
+            #         score = round(float(instances.scores[i]) * 100, 1)
+            #         label_text += f': {score}'
 
-                self.draw_texts(
-                    label_text,
-                    pos,
-                    colors=text_colors[i],
-                    font_sizes=int(13 * scales[i]),
-                    bboxes=[{
-                        'facecolor': 'black',
-                        'alpha': 0.8,
-                        'pad': 0.7,
-                        'edgecolor': 'none'
-                    }])
+            #     self.draw_texts(
+            #         label_text,
+            #         pos,
+            #         colors=text_colors[i],
+            #         font_sizes=int(13 * scales[i]),
+            #         bboxes=[{
+            #             'facecolor': 'black',
+            #             'alpha': 0.8,
+            #             'pad': 0.7,
+            #             'edgecolor': 'none'
+            #         }])
 
         if 'masks' in instances:
             labels = instances.labels
@@ -344,6 +344,7 @@ class DetLocalVisualizer(Visualizer):
 
         if data_sample is not None:
             data_sample = data_sample.cpu()
+            
 
         if draw_gt and data_sample is not None:
             gt_img_data = image

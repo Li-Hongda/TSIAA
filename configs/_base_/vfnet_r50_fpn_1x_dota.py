@@ -105,9 +105,9 @@ train_cfg = dict(max_epochs=max_epochs)
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dota/tabim_dota/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dota/tbim_vfnet/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 
 test_evaluator = dict(type='ASRMetric',
-                      metric=['asr', 'dr'])
+                      metric=['asr'])

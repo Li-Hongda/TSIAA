@@ -157,9 +157,9 @@ auto_scale_lr = dict(base_batch_size=32)
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/tabim_deformabledetr_allbox/',
+        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/x_deformabledetr_allbox/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 
 test_evaluator = dict(type='ASRMetric',
-                      metric=['asr', 'dr'])
+                      metric=['asr''])
