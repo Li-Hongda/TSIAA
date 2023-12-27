@@ -10,7 +10,7 @@ from mmengine.runner.runner import Runner
 from mmengine.hooks.hook import DATA_BATCH, Hook
 from mmdet.structures.bbox import get_box_tensor
 
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Optional, Sequence, Union
 
 import torch.nn as nn
 
@@ -49,13 +49,7 @@ class RecordHook(Hook):
                         f.write(outline)
 
     def after_test(self, runner) -> None:
-        # if runner.test_dataloader.dataset.__class__.__name__ == 'DIORDataset':
-        #     img_suffix = '.jpg'
-        # else:
-        #     img_suffix = '.png'
         destfile = self.image_path[:-7] + '/select.json'
-        # if runner.test_dataloader
-        # imageparent = os.path.join(self.image_path)
         labelparent = os.path.join(self.label_path)
         
         data_dict = {}
@@ -136,23 +130,10 @@ class AttackRunner(Runner):
         adv_batch = self.attack_loop.run()
         self.call_hook('after_run')
         return adv_batch
-        
-        
-    
 
 
 @LOOPS.register_module()
 class AttackLoop(TestLoop):
-    """Loop for test.
-
-    Args:
-        runner (Runner): A reference of runner.
-        dataloader (Dataloader or dict): A dataloader object or a dict to
-            build a dataloader.
-        evaluator (Evaluator or dict or list): Used for computing metrics.
-        fp16 (bool): Whether to enable fp16 testing. Defaults to
-            False.
-    """
 
     def run(self) -> dict:
         """Launch test."""
@@ -162,28 +143,18 @@ class AttackLoop(TestLoop):
         for idx, data_batch in enumerate(self.dataloader):
             self.run_iter(idx, data_batch)
 
-        # compute metrics
-        # metrics = self.evaluator.evaluate(len(self.dataloader.dataset))
         self.runner.call_hook('after_test_epoch')
         self.runner.call_hook('after_test')
 
     def run_iter(self, idx, data_batch: Sequence[dict]) -> None:
-        """Iterate one mini-batch.
 
-        Args:
-            data_batch (Sequence[dict]): Batch of data from dataloader.
-        """
         self.runner.call_hook(
             'before_test_iter', batch_idx=idx, data_batch=data_batch)
         per_class_img = {}
         for k,v in self.runner.test_dataloader.dataset.cat_img_map.items():
             per_class_img[k] = list(set(v))
-        # predictions should be sequence of BaseDataElement
-        # with autocast(enabled=self.fp16):
         gen_model = self.runner.model
         adv_batch = self.runner.attacker.attack(gen_model, data_batch, self.runner.test_dataloader.dataset)
-        # outputs = self.runner.model.test_step(adv_batch)
-        # self.evaluator.process(data_samples=outputs, data_batch=data_batch)
         self.runner.call_hook(
             'after_test_iter',
             batch_idx=idx,

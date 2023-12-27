@@ -67,9 +67,8 @@ optim_wrapper = dict(
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/tbim_gfl_eps10/',
+        data_root='work_dirs/examples/dior/tsiaa_gfl/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 
-test_evaluator = dict(type='ASRMetric',
-                      metric=['asr'])
+test_evaluator = dict(type='ASRMetric', metric=['asr'])

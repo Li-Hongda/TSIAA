@@ -105,9 +105,8 @@ train_cfg = dict(max_epochs=max_epochs)
 
 test_dataloader = dict(
     dataset=dict(
-        data_root='/disk2/lhd/codes/attack/work_dirs/examples/dior/tabim_vfnet_eps10/',
+        data_root='work_dirs/examples/dior/tsiaa_vfnet/',
         ann_file='select.json',
         data_prefix=dict(img='images/')))
 
-test_evaluator = dict(type='ASRMetric',
-                      metric=['asr'])
+test_evaluator = dict(type='ASRMetric', metric=['asr'])

@@ -15,8 +15,7 @@ from terminaltables import AsciiTable
 
 from mmdet.datasets.api_wrappers import COCO, COCOeval
 from mmdet.registry import METRICS
-from mmdet.structures.mask import encode_mask_results
-from ..functional import eval_asr, eval_dr, eval_asr_all, print_summary, save_summary
+from ..functional import eval_asr,print_summary
 
 
 @METRICS.register_module()
@@ -81,11 +80,11 @@ class ASRMetric(BaseMetric):
         super().__init__(collect_device=collect_device, prefix=prefix)
         # coco evaluation metrics
         self.metrics = metric if isinstance(metric, list) else [metric]
-        allowed_metrics = ['asr', 'dr', 'fp']
+        allowed_metrics = ['asr','fpr']
         for metric in self.metrics:
             if metric not in allowed_metrics:
                 raise KeyError(
-                    f"metric should be one of 'asr', 'dr' but got {metric}.")
+                    f"metric should be one of 'asr', 'fpr' but got {metric}.")
 
         # do class wise evaluation, default False
         self.classwise = classwise
@@ -185,13 +184,7 @@ class ASRMetric(BaseMetric):
 
         for metric in self.metrics:
             logger.info(f'Evaluating {metric}...')
-            # asr, dr = eval_dr_v1(self.results)
-            # fr = eval_asr_v1(self.results)
-            if metric == 'asr':
-                asr, fr = eval_asr(self.results)
-            elif metric == 'dr':
-                dr = eval_dr(self.results)
-        # save_summary(asr, fr, logger)
+            asr, fr = eval_asr(self.results)
         print_summary(asr, fr, logger)
         return eval_results
     
