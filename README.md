@@ -1,7 +1,8 @@
 # Task-Specific Importance-Awareness Matters: On Targeted Attacks against Object Detection
 
 
-
+## Datasets
+The download link of these datasets can be accessed at [AAOD-ORSI](https://github.com/xuxiangsun/AAOD-ORSI).
 
 ## Getting Started
 1. Clone the repo
@@ -19,9 +20,16 @@ mim install mmcv==2.0.0
 cd /path/to/this/repo/
 pip install -v -e .
 ```
-
-## Datasets
-The download link of these datasets can be accessed at [AAOD-ORSI](https://github.com/xuxiangsun/AAOD-ORSI).
+4. Run 
+attack
+```
+python tools/attack.py /path/to/config /path/to/checkpoint --name /save/name/ \
+--epsilon 16 --steps 20
+```
+test 
+```
+python tools/test.py /path/to/config /path/to/checkpoint 
+```
 
 
 ## License

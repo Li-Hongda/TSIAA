@@ -5,7 +5,6 @@ import os.path as osp
 from mmengine.config import Config, DictAction
 from mmengine.registry import RUNNERS
 from mmengine.runner import Runner
-from mmdet.apis import init_detector
 from mmdet.utils import register_all_modules 
 
 def parse_args():
@@ -15,18 +14,11 @@ def parse_args():
     parser.add_argument(
         '--work-dir',
         help='the directory to save the file containing evaluation metrics')
-    parser.add_argument("--attack", default='tbim')
+    parser.add_argument("--attack", default='tsiaa')
     parser.add_argument("--step_size", type = int, default=1)
     parser.add_argument("--steps", type = int, default=20)
     parser.add_argument("--epsilon", type = int, default=16)
-    parser.add_argument("--name", type=str, default='test')
-    parser.add_argument(
-        '--show', action='store_true', help='show prediction results')    
-    parser.add_argument(
-        '--show-dir',
-        help='directory where painted images will be saved. '
-        'If specified, it will be automatically saved '
-        'to the work_dir/timestamp/show_dir')
+    parser.add_argument("--name", type=str, default='tsiaa_atss')
     parser.add_argument(
         '--cfg-options',
         nargs='+',
@@ -49,29 +41,6 @@ def parse_args():
     return args        
 
 
-def trigger_visualization_hook(cfg, args):
-    default_hooks = cfg.default_hooks
-    if 'visualization' in default_hooks:
-        visualization_hook = default_hooks['visualization']
-        # Turn on visualization
-        visualization_hook['draw'] = True
-        if args.show:
-            visualization_hook['show'] = True
-            visualization_hook['wait_time'] = args.wait_time
-        if args.show_dir:
-            visualization_hook['test_out_dir'] = args.show_dir
-    else:
-        raise RuntimeError(
-            'VisualizationHook must be included in default_hooks.'
-            'refer to usage '
-            '"visualization=dict(type=\'VisualizationHook\')"')
-
-    return cfg
-
-# def attack_imgs():
-#     attacker = build
-
-
 if __name__ == "__main__":
     args = parse_args()
     
@@ -92,10 +61,7 @@ if __name__ == "__main__":
         cfg.work_dir = osp.join('./work_dirs',
                                 osp.splitext(osp.basename(args.config))[0])    
         
-    cfg.load_from = args.checkpoint
-
-    if args.show or args.show_dir:
-        cfg = trigger_visualization_hook(cfg, args)        
+    cfg.load_from = args.checkpoint       
     
     attacker_default_args = dict(
         type = args.attack.upper() + "Attacker",
