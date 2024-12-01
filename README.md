@@ -15,11 +15,13 @@ This repo contains the code for our IEEE TCSVT paper "Task-Specific Importance-A
 If you think this repository may be helpful to you, please consider giving a star :star: and citation. Thanks for your consideration.
 ```
 @article{sun2024task,
-  title={Task-Specific Importance-Awareness Matters:\\ On Targeted Attacks against Object Detection},
-  author={Sun, Xuxiang and Cheng, Gong and Li, Hongda, and Peng, Hongyu, and Han, Junwei},
-  booktitle={IEEE Trans. Circuit Syst. Video Technol.},
-  pages={1--11},
-  year={2024}
+  author={Sun, Xuxiang and Cheng, Gong and Li, Hongda and Peng, Hongyu and Han, Junwei},
+  journal={IEEE Trans. Circuit Syst. Video Technol.}, 
+  title={Task-Specific Importance-Awareness Matters: On Targeted Attacks Against Object Detection}, 
+  year={2024},
+  volume={34},
+  number={11},
+  pages={11619-11629}
 }
 ```
 #### :page_facing_up: System Environment
